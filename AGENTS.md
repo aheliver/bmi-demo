@@ -69,22 +69,13 @@ If a rule below and this table ever disagree, the table wins — fix the prose.
 - Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
 
 ## Layered architecture — enforce the seams
-**The concrete folder tree, per-layer contracts, and request/data flow live in `docs/superpowers/specs/2026-07-14-bmi-app-architecture-design.md` — READ IT before scaffolding the project or creating any file, and conform to its file placement/naming. It is binding, not a suggestion.** The summary below is the quick reference; the spec is the detail.
+**The folder tree, per-layer contracts, request/data flow, and the rationale for every seam live in `docs/superpowers/specs/2026-07-14-bmi-app-architecture-design.md` — READ IT before scaffolding the project or creating any file, and conform to its file placement/naming. Binding, not a suggestion.**
 
-Every operation flows through these layers. Do not collapse them.
-```
-Route Handler (app/api/**)   communication — HTTP only
-      ↓
-Use Cases (application/**)    application — ONE async function per operation
-      ↓                        (createRecord, listRecords). Not a "service" class.
-Domain (domain/**)           pure functions — computeBmi, classifyBmi, models. Zero deps.
-      ↓
-Repository (infrastructure/**)  data access — Prisma only. No business logic.
-```
-- **Use cases are async functions**, one operation per file (`createRecord`, `listRecords`). Take already-validated input, return domain results. No DI container — import the repository directly (inject only if a test genuinely needs it).
-- **Domain is pure** — the BMI math and classification live here, dependency-free and unit-tested directly.
+The always-on invariants (the spec has the tree, contracts, and "why"):
+- **Flow, never collapsed:** Route Handler (`app/api/**`) → use case (`application/**`) → domain (`domain/**`) ← repository (`infrastructure/**`). No layer skips or reaches around a seam.
+- **Use cases are async functions**, one per operation (`createRecord`, `listRecords`) — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it).
+- **Domain is pure** — BMI math/classification, zero deps, unit-tested directly.
 - **Repository is the ONLY thing that touches the DB.** No Prisma calls outside `infrastructure/`.
-- This layering is what makes a future extraction to a standalone Node backend a lift-and-shift, not a rewrite. Keep use cases + domain + repository transport-agnostic.
 
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
