@@ -133,6 +133,7 @@ On **any** turn that produces a durable change — code, behavior, **or a commit
 5. **Presented the evidence and confirmed with the human before the final claim/commit.** (Skip only for pure questions or trivial edits.)
 6. Before merging: `superpowers:requesting-code-review`, then `superpowers:finishing-a-development-branch`.
 7. **OPENED A PR.** If the change is committed, it MUST live on a branch that is **pushed** and has an **open `gh pr create` PR** against `main`. A local commit is NOT done — "done" for anything committed means a PR URL exists and has been handed to the human. Never end a turn with a committed-but-unpushed branch or a pushed branch without a PR. (This overrides any skill that says to stop at a commit.)
+8. **CLEANED UP THE WORKTREE.** If the work was done in a worktree (`.claude/worktrees/…`), once the branch is pushed and the PR is open, REMOVE the worktree (`ExitWorktree` → `remove`; discarded local commits are safe because they live on the pushed remote branch). Never leave a dangling worktree behind — a pushed PR branch makes the local worktree disposable. Do not report "done" with a stale worktree still on disk.
 
 # Skills to invoke
 
@@ -164,5 +165,6 @@ All project knowledge — conventions, decisions, status — lives in THIS repo 
 - **Always open a PR** with `gh pr create` when work is ready. Let the user merge from GitHub. **A commit without a pushed branch and an open PR is unfinished work** — the turn is not done until the PR URL exists (see the finish-line gate). This applies to docs/specs too, not just code.
 - **Never force-push without explicit permission in the same turn.** Default: a new commit on top. If a force-push is genuinely needed, ASK first.
 - **Controller owns all git in worktrees.** The main session runs every `git commit`/`push`/`checkout`/`gh pr`. Subagents may edit/test/build — never git mutations.
+- **Remove the worktree when finishing.** After the branch is pushed and the PR is open, `ExitWorktree` → `remove` — the work is safe on the remote. Never leave a stale worktree in `.claude/worktrees/` after the work is done (see finish-line gate step 8).
 - **Never trust a local `main`/`origin/main` ref — `git fetch origin` first** before claiming a diff is clean; diff against freshly-fetched `origin/main`.
 - This repo squash-merges: find merged branches with `gh pr list --state merged`, not `git branch --merged`.
