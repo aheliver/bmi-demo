@@ -9,100 +9,117 @@ Key shifts from prior versions:
 - **Tailwind CSS v4** — `@import 'tailwindcss'`, `@tailwindcss/postcss`, design tokens via `@theme inline { ... }`.
 - **`params` and `searchParams` are Promises** — `await` them.
 - **`PageProps<'/path'>` / `LayoutProps<'/path'>`** are global type helpers — no import needed.
-- **Cache Components** (`use cache`, `cacheLife`, `cacheTag`, `updateTag`) — prefer over `unstable_cache`. Tool landing pages are RSC + cached; tool interactive flow is a client island.
-- **Server data → client island: use React Query hydration, never prop-drill.** When a Server Component fetches per-request data for a client island that reads server state via React Query, prefetch it on the server and hand it over with `dehydrate` + `<HydrationBoundary>` (the pattern in `app/layout.tsx`); the island reads it with `useQuery` from the hydrated cache. Do NOT pass an `initial` payload as a prop — it desyncs from the query cache and forces you to reconcile two sources of the same state.
+- **Cache Components** (`use cache`, `cacheLife`, `cacheTag`, `updateTag`) — prefer over `unstable_cache`.
+- **Server data → client island: use React Query hydration, never prop-drill.** When a Server Component fetches per-request data for a client island that reads server state via React Query, prefetch it on the server and hand it over with `dehydrate` + `<HydrationBoundary>`; the island reads it with `useQuery` from the hydrated cache. Do NOT pass an `initial` payload as a prop — it desyncs from the query cache and forces you to reconcile two sources of the same state.
 - **Server Components by default** — only mark `'use client'` for components that need state, effects, or browser APIs.
 - ESLint runs via `eslint` CLI (not `next lint`).
 <!-- END:nextjs-agent-rules -->
 
-# Logging
+# The Stack — strict, non-negotiable
 
-- **pino, JSON to stdout, no transports in prod** (Vercel / Cloud Run ingest stdout natively; worker-thread transports break under serverless bundling). `pino-pretty` in Next.js dev only.
-- **Next.js:** server-only singleton in `lib/logger.ts`; wrap API route handlers with `withRequestLog` from `lib/http/request-log.ts` — it emits one `http.request.completed` line per call (requestId from `x-vercel-id`, route, method, status, durationMs) and passes a request-scoped child logger to the handler for domain events. **Conversion service:** `src/logger.ts` + `hono-pino` middleware; enrich the per-request line with `c.get('logger').assign({...})`.
-- **Server-render surface:** `instrumentation.ts` (root) logs any uncaught request-scoped error via `onRequestError` (`server.request.error`) and installs a process-level net in `register()` (`server.unhandled_rejection` / `server.uncaught_exception` for detached async — e.g. a rejected promise in `after()` work). Server Actions are wrapped with `withActionLog` from `lib/action-log.ts` (logs `server.action.failed` on throw + key domain events; preserves the action's signature). `proxy.ts` logs auth cookie-rotation failures. pino is Node-only, so `instrumentation.ts` hooks and `proxy.ts` load the logger via a dynamic `import()` gated on `NEXT_RUNTIME === 'nodejs'` — keeps it out of edge bundles.
-- **Never log bodies, file contents, or user filenames** — log byte sizes, counts, and formats instead. `authorization` / `cookie` / `set-cookie` headers are redacted in the logger config.
-- **Event naming:** `domain.action.outcome` (e.g. `download.denied.no-plan`, `conversion.job.failed`). Levels: error = unexpected/5xx, warn = denied/rejected/timeout (4xx), info = completions and lifecycle, debug = polling + upstream success detail (`/api/jobs/[id]` 2xx logs at debug — don't promote it).
-- `LOG_LEVEL` env controls verbosity in both apps (default `info`; `silent` under test).
+This is a full-stack BMI app (capture demographic + health data → compute BMI → store in Postgres → render a filterable, paginated table). The stack below is fixed. Do not introduce alternatives without an explicit decision recorded in `docs/superpowers/specs/`. Rationale for every choice lives in `docs/superpowers/specs/2026-07-13-bmi-app-stack-design.md` — read it before proposing changes.
 
+**Governing principle:** minimum defensible surface. Every dependency must solve a specific, named problem and be an industry-standard 2026 tool. When in doubt, add nothing.
+
+## Framework & language
+- **Next.js 16 (App Router) + TypeScript.** No pages router. Server Components by default.
+
+## UI — Radix via shadcn, no hand-rolled markup or CSS
+- **Use shadcn/ui components (Radix primitives + Tailwind).** shadcn *is* how we use Radix. Scaffolded with `npx shadcn@latest init --preset bJMTbSfw --template next`.
+- **Do NOT hand-write raw HTML form controls or custom CSS** when a shadcn/Radix component exists. Compose shadcn components + Tailwind utility classes. No styled-components, no CSS modules, no bespoke `.css` beyond the Tailwind entry + `@theme` tokens.
+- **Tables:** use the **shadcn Data Table (TanStack Table)** pattern. Server-side sort/filter/paginate — never fetch the whole dataset and filter in the browser.
+
+## Forms & validation
+- **React Hook Form** for all forms.
+- **Zod** for all validation. **One schema per shape, colocated with its inferred type.**
+- **Validate on BOTH sides from the SAME schema:** client via `@hookform/resolvers/zod` (UX), and re-parse server-side in the Route Handler (trust boundary). Client validation is UX; **server validation is security.** Never trust client input.
+
+## Communication layer — Route Handlers only
+- **All client↔server data goes through Route Handlers (REST): `app/api/**/route.ts`.** GET for reads, POST/PUT/DELETE for writes. This is the *only* communication style.
+- **Do NOT use Server Actions for application data.** (They aren't a public API — can't serve mobile — and don't work with React Query `useQuery`.) One style, top to bottom, keeps the API `curl`-able and external-client-ready.
+- Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
+
+## Layered architecture — enforce the seams
+Every operation flows through these layers. Do not collapse them.
+```
+Route Handler (app/api/**)   communication — HTTP only
+      ↓
+Use Cases (application/**)    application — ONE async function per operation
+      ↓                        (createRecord, listRecords). Not a "service" class.
+Domain (domain/**)           pure functions — computeBmi, classifyBmi, models. Zero deps.
+      ↓
+Repository (infrastructure/**)  data access — Prisma only. No business logic.
+```
+- **Use cases are async functions**, one operation per file (`createRecord`, `listRecords`). Take already-validated input, return domain results. No DI container — import the repository directly (inject only if a test genuinely needs it).
+- **Domain is pure** — the BMI math and classification live here, dependency-free and unit-tested directly.
+- **Repository is the ONLY thing that touches the DB.** No Prisma calls outside `infrastructure/`.
+- This layering is what makes a future extraction to a standalone Node backend a lift-and-shift, not a rewrite. Keep use cases + domain + repository transport-agnostic.
+
+## Data layer
+- **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
+- **Data fetching: TanStack Query (React Query).** Reads via `useQuery` → GET Route Handler; writes via `useMutation` → POST Route Handler, then `invalidateQueries`. SSR-prefetch + hydrate per the Next 16 rule above.
+- **URL state: nuqs.** Filter/sort/page state lives in the URL (typed), and is the React Query key. Shareable, bookmarkable, back-button-safe.
+
+## Error handling (graded by the rubric)
+- Route handlers return typed errors with correct status codes: **400** for Zod validation failures (return flattened issues), **500** for unexpected. A single error-mapping helper at the communication layer turns thrown domain/repo errors into HTTP responses so lower layers stay HTTP-agnostic.
+- UI surfaces React Query `error`/`isError`; mutations show pending/error state.
+
+## Out of scope (YAGNI — do not build)
+No auth, no separate Node backend, no Server Actions for data, no websockets/real-time, no background jobs, no cursor/infinite pagination. See the spec for why.
 
 # Testing — non-negotiable
 
-Tests ship in the same change as the code. "I'll add tests later" means never; reviewers reject PRs without them.
+Tests ship in the same change as the code. "I'll add tests later" means never.
 
-**Stack:** Vitest + happy-dom + @testing-library/react + @testing-library/user-event. `jest-dom` matchers loaded globally via `vitest.setup.ts`. Do not reintroduce `tsx --test` / `node:test`, and do not switch to jsdom (jsdom 27's CJS layer breaks under Node 20).
+**Stack:** Vitest + happy-dom + @testing-library/react + @testing-library/user-event. `jest-dom` matchers loaded globally via `vitest.setup.ts`.
 
+**What to test here (right-sized for this app):**
+- **Domain** — `computeBmi`, `classifyBmi`: the highest-value tests, pure and fast. Cover boundary values (category thresholds).
+- **Validation** — the Zod schema: valid input passes, invalid (negative/zero/NaN height/weight, out-of-range) is rejected.
+- **Repository / use cases** — filtering + pagination behavior against a test DB or a faked repository.
 
-**No useless tests.** A test earns its place only if it would FAIL when the implementation's real logic breaks. More tests ≠ more coverage — redundant tests are maintenance cost with zero signal. Do NOT write (and delete when you find):
-- **Duplicates** — an assertion already made by another test (e.g. the same boundary value checked twice).
-- **Trivial pass-throughs** — a one-liner already covered transitively by a higher-level test (if `toolBadge()` already exercises `resolveTool()`, don't also unit-test `resolveTool()` in isolation).
-- **Tautologies** — asserting only that a mock was called with exactly what you just handed it, or that a fake returns the value you configured it to return.
-- **Config / metadata / schema mirrors** — asserting that a declarative SEO object equals the literals it's built from: page `metadata` (title/description/canonical/OG/Twitter/`robots`/`metadataBase`), `app/sitemap.ts` / `app/robots.ts` output, JSON-LD / schema builders. These restate the source; a real regression surfaces in the build or a live check, not a unit assertion. Do NOT unit-test them (real transformation logic like HTML-escaping is the exception — test that).
+**No useless tests.** A test earns its place only if it would FAIL when real logic breaks. Do NOT write (and delete when you find): duplicates, trivial pass-throughs already covered transitively, tautologies (asserting a mock returns what you configured), or config/schema mirrors.
 
-When you touch a test file, remove the useless tests you find there, not just the ones you'd add.
-
-**TDD:** Invoke `superpowers:test-driven-development` BEFORE implementation. Cycle: failing test → minimum impl → pass → refactor. For refactors with no new behavior, write a characterization test first.
-
-**Definition of done.** Before claiming complete:
-1. Audit against the coverage table above — NOT your task list. Task lists get scoped to whatever you mentally committed to; the policy is the actual bar. List every file touched AND every untested file in the surrounding layer; for each, ask whether the policy requires a test.
-2. Invoke `superpowers:verification-before-completion`. `npm test` exiting green tells you nothing about what you didn't test.
-3. Treat plan completion and policy compliance as separate questions.
-
-Found a gap? Write the missing tests in the same change, or stop and surface the gap explicitly — don't ship a partial result with "noted for later".
-
-# Before you claim done — the finish-line gate
-
-On any turn that includes code or behavior changes, you may NOT declare done — no `result:`, no "complete", no final claim — until, in the SAME turn, you have:
-
-1. Re-read the original ask and listed what it required.
-2. Run `npm test`, `npm run build`, and `eslint` **fresh**, and shown the exit codes + pass/fail counts (not "should pass").
-   - Before claiming the diff itself is clean/complete, `git fetch origin` and verify against the freshly-fetched `origin/main` (or the GitHub PR diff) — a stale local `main` ref shows phantom changes and has produced false "done" claims. See Git workflow.
-3. Invoked `superpowers:verification-before-completion`.
-4. For a **behavior change**, run a **live** check — Playwright driving system Chrome (`channel: 'chrome'`) against the running app — because unit-green ≠ works in the browser.
-5. **Presented the evidence and confirmed with the human before the final claim/commit.** This confirm step applies to turns with recent substantive changes; skip it only for pure questions or trivial edits.
-6. Before merging: `superpowers:requesting-code-review`, then `superpowers:finishing-a-development-branch`.
-
-"Unit tests pass" and "the change is done" are different claims — see Testing → Definition of done.
-
-# Skills to invoke
-
-Mandatory, not suggestions. Invoke BEFORE touching code.
-
-**Workflow (process — invoke first):**
-- Feature / bugfix / behavior change → `superpowers:test-driven-development`.
-- Multi-step task (3+ steps) → `superpowers:writing-plans`.
-- Creative / design work → `superpowers:brainstorming`, then dispatch the `design` subagent.
-- Debugging unexpected behavior → `superpowers:systematic-debugging`.
-- Before claiming complete → run the **finish-line gate** above (it includes `superpowers:verification-before-completion` + fresh evidence + a live check).
-- Before merging → `superpowers:requesting-code-review`, then `superpowers:finishing-a-development-branch` (the finish-line gate's last step).
-- Addressing review feedback → `superpowers:receiving-code-review`. **Each comment is a sample, not a single-site request** — grep the codebase for the same pattern in other files and apply the fix everywhere, then mention the broader scope in your reply.
-
-**Domain:**
-- Any UI/visual work → dispatch the `design` subagent (it invokes `pdfapp-design` + `frontend-design:frontend-design` for you).
-- Next.js routing / RSC / Server Actions → `vercel:nextjs`. Caching / `use cache` / PPR → `vercel:next-cache-components`.
-- Supabase → `supabase:supabase`. Postgres perf / RLS → `supabase:supabase-postgres-best-practices`.
-- Stripe → `stripe:stripe-best-practices`.
+**TDD:** Invoke `superpowers:test-driven-development` BEFORE implementation. Cycle: failing test → minimum impl → pass → refactor.
 
 # Logging
 
-- **pino, JSON to stdout, no transports in prod** (Vercel / Cloud Run ingest stdout natively; worker-thread transports break under serverless bundling). `pino-pretty` in Next.js dev only.
-- **Next.js:** server-only singleton in `lib/logger.ts`; wrap API route handlers with `withRequestLog` from `lib/http/request-log.ts` — it emits one `http.request.completed` line per call (requestId from `x-vercel-id`, route, method, status, durationMs) and passes a request-scoped child logger to the handler for domain events. **Conversion service:** `src/logger.ts` + `hono-pino` middleware; enrich the per-request line with `c.get('logger').assign({...})`.
-- **Server-render surface:** `instrumentation.ts` (root) logs any uncaught request-scoped error via `onRequestError` (`server.request.error`) and installs a process-level net in `register()` (`server.unhandled_rejection` / `server.uncaught_exception` for detached async — e.g. a rejected promise in `after()` work). Server Actions are wrapped with `withActionLog` from `lib/action-log.ts` (logs `server.action.failed` on throw + key domain events; preserves the action's signature). `proxy.ts` logs auth cookie-rotation failures. pino is Node-only, so `instrumentation.ts` hooks and `proxy.ts` load the logger via a dynamic `import()` gated on `NEXT_RUNTIME === 'nodejs'` — keeps it out of edge bundles.
-- **Never log bodies, file contents, or user filenames** — log byte sizes, counts, and formats instead. `authorization` / `cookie` / `set-cookie` headers are redacted in the logger config.
-- **Event naming:** `domain.action.outcome` (e.g. `download.denied.no-plan`, `conversion.job.failed`). Levels: error = unexpected/5xx, warn = denied/rejected/timeout (4xx), info = completions and lifecycle, debug = polling + upstream success detail (`/api/jobs/[id]` 2xx logs at debug — don't promote it).
-- `LOG_LEVEL` env controls verbosity in both apps (default `info`; `silent` under test).
+- **pino, JSON to stdout, no transports in prod** (Vercel ingests stdout natively; worker-thread transports break under serverless bundling). `pino-pretty` in dev only.
+- Server-only singleton in `lib/logger.ts`. Wrap Route Handlers with a `withRequestLog` helper that emits one `http.request.completed` line per call (route, method, status, durationMs) and passes a request-scoped child logger to the handler for domain events.
+- **Never log request bodies or PII** (this app captures health data — height/weight/demographics). Log counts, sizes, and outcomes, not values. Redact `authorization`/`cookie` headers.
+- **Event naming:** `domain.action.outcome` (e.g. `record.created`, `record.list.failed`). Levels: error = unexpected/5xx, warn = rejected/4xx, info = completions, debug = detail. `LOG_LEVEL` env controls verbosity (default `info`; `silent` under test).
 
+# Before you claim done — the finish-line gate
+
+On any turn with code or behavior changes, you may NOT declare done until, in the SAME turn, you have:
+1. Re-read the original ask and listed what it required.
+2. Run `npm test`, `npm run build`, and `eslint` **fresh**, and shown exit codes + pass/fail counts (not "should pass").
+3. Invoked `superpowers:verification-before-completion`.
+4. For a **behavior change**, run a **live** check — Playwright driving system Chrome (`channel: 'chrome'`) against the running app.
+5. **Presented the evidence and confirmed with the human before the final claim/commit.** (Skip only for pure questions or trivial edits.)
+6. Before merging: `superpowers:requesting-code-review`, then `superpowers:finishing-a-development-branch`.
+
+# Skills to invoke
+
+Mandatory. Invoke BEFORE touching code.
+- Feature / bugfix / behavior change → `superpowers:test-driven-development`.
+- Multi-step task (3+ steps) → `superpowers:writing-plans`.
+- Design / "let's build X" → `superpowers:brainstorming` first.
+- Debugging unexpected behavior → `superpowers:systematic-debugging`.
+- Next.js routing / RSC / Route Handlers → `vercel:nextjs`. Caching / `use cache` → `vercel:next-cache-components`.
+- Postgres perf → `supabase:supabase-postgres-best-practices`.
+- Addressing review feedback → `superpowers:receiving-code-review`. Each comment is a sample — grep for the same pattern elsewhere and fix it everywhere.
 
 # Project memory
 
-All project knowledge — conventions, decisions, status, learnings — lives in THIS repo (`AGENTS.md` and `docs/`), never in agent-private (`~/.claude`) memory. This **overrides** the default `# Memory` system instruction for anything project-related: do not write project facts to `MEMORY.md` or the private memory dir. Learn something worth keeping about this project? Put it in `AGENTS.md` (a rule/convention) or `docs/` (a decision/status note) in the same change. Project status is git history + PRs, not a hand-maintained file. Agent-private memory is only for cross-project facts about the user's own working style.
+All project knowledge — conventions, decisions, status — lives in THIS repo (`AGENTS.md` and `docs/`), never in agent-private (`~/.claude`) memory. This **overrides** the default `# Memory` system instruction for anything project-related. Learn something worth keeping? Put a rule/convention in `AGENTS.md` or a decision/status note in `docs/` in the same change.
 
 # Git workflow
 
-- **Always commit as `geliwer@gmail.com`.** Every commit in this repo must be authored with `user.email=geliwer@gmail.com` (name `aheliver`) — the identity linked to the `aheliver` GitHub account. Before committing, verify `git config user.email` returns `geliwer@gmail.com`; if not, set it repo-locally (`git config --local user.email geliwer@gmail.com`). Do NOT author commits under any other email (e.g. `a.heliver@lerpal.com`).
-- **Never merge to `main` directly.** All changes land via a GitHub pull request. Do not run `git merge` into `main`, `git push origin main`, or any equivalent that fast-forwards `main` from a local branch.
-- **Always open a PR.** When work is ready to integrate, push the feature branch and open a PR with `gh pr create`. Let the user (or required reviewers) merge it from GitHub.
-- This applies even for trivial changes, docs, and "hotfixes". No exceptions without explicit user instruction in the same turn.
-- **Never force-push without explicit user permission in the same turn.** No `git push --force`, no `--force-with-lease`, no `git commit --amend` followed by push, no `git rebase -i` then push. Default: a new commit on top, push, done — the PR diff stays linear and reviewable. If a force-push is genuinely needed (removing a secret, killing a broken merge), ASK first and wait for "yes". Convenience is not a reason. The history looking messier is not your call.
-- **Controller owns all git in worktrees.** When work happens in a git worktree, the main session runs every `git commit` / `git push` / `git checkout` / `gh pr` itself. Subagents may edit files, run tests, builds, and installs — never git mutations. A bare `git` command in a subagent can land on the wrong branch (often `main`), because its CWD isn't guaranteed to be the worktree.
-- **Never trust a local `main` / `origin/main` ref — `git fetch origin` first.** These refs go stale, and a `git diff main` against a stale ref shows phantom changes (once: hundreds of `.claude/` deletions that weren't real) and drives false "done" claims. Before you claim a branch's diff is clean or complete, `git fetch origin` and diff against the freshly-updated `origin/main` (`git diff origin/main --stat`), or read the PR diff on GitHub. This is part of the finish-line gate: the diff you verify must be the one reviewers will see, not a local snapshot.
-- **Find merged branches with `gh pr list --state merged`, not `git branch --merged`.** This repo squash-merges, so the source branch never becomes an ancestor of `main` — `git branch --merged` misses every squash-merged branch. Use `gh pr list --state merged --json headRefName` to identify branches that are truly merged before deleting them.
+- **Always commit as `geliwer@gmail.com`** (name `aheliver`). Verify `git config user.email` before committing; set repo-locally if wrong. Do NOT author under any other email.
+- **Never merge to `main` directly.** All changes land via a GitHub PR. No `git merge` into `main`, no `git push origin main`.
+- **Always open a PR** with `gh pr create` when work is ready. Let the user merge from GitHub.
+- **Never force-push without explicit permission in the same turn.** Default: a new commit on top. If a force-push is genuinely needed, ASK first.
+- **Controller owns all git in worktrees.** The main session runs every `git commit`/`push`/`checkout`/`gh pr`. Subagents may edit/test/build — never git mutations.
+- **Never trust a local `main`/`origin/main` ref — `git fetch origin` first** before claiming a diff is clean; diff against freshly-fetched `origin/main`.
+- This repo squash-merges: find merged branches with `gh pr list --state merged`, not `git branch --merged`.
