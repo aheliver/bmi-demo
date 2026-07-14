@@ -120,13 +120,14 @@ Tests ship in the same change as the code. "I'll add tests later" means never.
 
 # Before you claim done — the finish-line gate
 
-On any turn with code or behavior changes, you may NOT declare done until, in the SAME turn, you have:
+On **any** turn that produces a durable change — code, behavior, **or a committed doc/spec** — you may NOT declare done until, in the SAME turn, you have:
 1. Re-read the original ask and listed what it required.
-2. Run `npm test`, `npm run build`, and `eslint` **fresh**, and shown exit codes + pass/fail counts (not "should pass").
+2. Run `npm test`, `npm run build`, and `eslint` **fresh**, and shown exit codes + pass/fail counts (not "should pass"). (Skip only when the change touches no code — e.g. a docs-only spec.)
 3. Invoked `superpowers:verification-before-completion`.
 4. For a **behavior change**, run a **live** check — Playwright driving system Chrome (`channel: 'chrome'`) against the running app.
 5. **Presented the evidence and confirmed with the human before the final claim/commit.** (Skip only for pure questions or trivial edits.)
 6. Before merging: `superpowers:requesting-code-review`, then `superpowers:finishing-a-development-branch`.
+7. **OPENED A PR.** If the change is committed, it MUST live on a branch that is **pushed** and has an **open `gh pr create` PR** against `main`. A local commit is NOT done — "done" for anything committed means a PR URL exists and has been handed to the human. Never end a turn with a committed-but-unpushed branch or a pushed branch without a PR. (This overrides any skill that says to stop at a commit.)
 
 # Skills to invoke
 
@@ -147,7 +148,7 @@ All project knowledge — conventions, decisions, status — lives in THIS repo 
 
 - **Always commit as `geliwer@gmail.com`** (name `aheliver`). Verify `git config user.email` before committing; set repo-locally if wrong. Do NOT author under any other email.
 - **Never merge to `main` directly.** All changes land via a GitHub PR. No `git merge` into `main`, no `git push origin main`.
-- **Always open a PR** with `gh pr create` when work is ready. Let the user merge from GitHub.
+- **Always open a PR** with `gh pr create` when work is ready. Let the user merge from GitHub. **A commit without a pushed branch and an open PR is unfinished work** — the turn is not done until the PR URL exists (see the finish-line gate). This applies to docs/specs too, not just code.
 - **Never force-push without explicit permission in the same turn.** Default: a new commit on top. If a force-push is genuinely needed, ASK first.
 - **Controller owns all git in worktrees.** The main session runs every `git commit`/`push`/`checkout`/`gh pr`. Subagents may edit/test/build — never git mutations.
 - **Never trust a local `main`/`origin/main` ref — `git fetch origin` first** before claiming a diff is clean; diff against freshly-fetched `origin/main`.
