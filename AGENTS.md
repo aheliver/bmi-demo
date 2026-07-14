@@ -33,10 +33,10 @@ This is a full-stack BMI app (capture demographic + health data → compute BMI 
 | Styling | Tailwind v4 utilities + `@theme` tokens | custom `.css`, CSS modules, styled-components, inline style hacks |
 | Forms | React Hook Form | uncontrolled ad-hoc forms; Formik |
 | Validation | Zod (one schema, client + server) | yup/joi; validating on one side only |
-| Client↔server | Route Handlers (`app/api/**`), REST | Server Actions for app data; tRPC; GraphQL |
-| App logic | use-case async functions (`application/**`) | logic in route handlers or components |
-| Domain | pure functions (`domain/**`) | side effects / IO in domain code |
-| Data access | Repository + Prisma (`infrastructure/**`) | Prisma calls outside the repository; raw string SQL |
+| Client↔server | Route Handlers (`src/app/api/**`), REST | Server Actions for app data; tRPC; GraphQL |
+| App logic | use-case async functions (`src/services/**`) | logic in route handlers or components |
+| Domain | pure functions (`src/domain/**`) | side effects / IO in domain code |
+| Data access | Repository + Prisma (`src/infrastructure/**`) | Prisma calls outside the repository; raw string SQL |
 | Database | PostgreSQL | SQLite/MySQL/Mongo |
 | Data fetching | TanStack Query (React Query), SSR-hydrated | `fetch` in components w/o React Query; SWR |
 | HTTP transport (inside `queryFn`/`mutationFn`) | native `fetch` | axios/ky/superagent |
@@ -64,25 +64,30 @@ If a rule below and this table ever disagree, the table wins — fix the prose.
 - **Validate on BOTH sides from the SAME schema:** client via `@hookform/resolvers/zod` (UX), and re-parse server-side in the Route Handler (trust boundary). Client validation is UX; **server validation is security.** Never trust client input.
 
 ## Communication layer — Route Handlers only
-- **All client↔server data goes through Route Handlers (REST): `app/api/**/route.ts`.** This is the *only* communication style. **This app needs only `GET /api/records` (list, filtered/paginated) and `POST /api/records` (create).** Do not build `PUT`/`DELETE` or other endpoints unless a task explicitly requires them.
+- **All client↔server data goes through Route Handlers (REST): `src/app/api/**/route.ts`.** This is the *only* communication style. **This app needs only `GET /api/records` (list, filtered/paginated) and `POST /api/records` (create).** Do not build `PUT`/`DELETE` or other endpoints unless a task explicitly requires them.
 - **Do NOT use Server Actions for application data.** (They aren't a public API — can't serve mobile — and don't work with React Query `useQuery`.) One style, top to bottom, keeps the API `curl`-able and external-client-ready.
 - Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
 
-## Layered architecture — enforce the seams
-Every operation flows through these layers. Do not collapse them.
+## Project structure — layer-first under `src/`, enforce the seams
+Application code lives under `src/`; config/tooling stays at the repo root. `app/` is Next.js **routing only**. Folders and what each holds (guidance — no fixed file list):
 ```
-Route Handler (app/api/**)   communication — HTTP only
-      ↓
-Use Cases (application/**)    application — ONE async function per operation
-      ↓                        (createRecord, listRecords). Not a "service" class.
-Domain (domain/**)           pure functions — computeBmi, classifyBmi, models. Zero deps.
-      ↓
-Repository (infrastructure/**)  data access — Prisma only. No business logic.
+src/
+  app/              # Next.js routing only — pages and route handlers
+  domain/           # pure, framework-free core — entities, business rules,
+                    #   validators, and repository interfaces (the contracts)
+  services/         # use cases — orchestrate domain and repositories
+  infrastructure/   # the outside world — external SDK clients and repository implementations
+  components/       # shared UI, including shadcn primitives
+  providers/        # app-level React context providers, wired into the layout
+  hooks/            # shared React hooks
+  lib/              # generic helpers with no external I/O
+prisma/             # schema and migrations — stays at repo root
 ```
-- **Use cases are async functions**, one operation per file (`createRecord`, `listRecords`). Take already-validated input, return domain results. No DI container — import the repository directly (inject only if a test genuinely needs it).
-- **Domain is pure** — the BMI math and classification live here, dependency-free and unit-tested directly.
-- **Repository is the ONLY thing that touches the DB.** No Prisma calls outside `infrastructure/`.
-- This layering is what makes a future extraction to a standalone Node backend a lift-and-shift, not a rewrite. Keep use cases + domain + repository transport-agnostic.
+Dependency direction — never collapse a seam or reach around one:
+- **Flow:** `app → services → domain ← infrastructure`. `domain/` imports nothing.
+- **Use cases live in `services/`**, one async function per operation — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it). A use case may be thin (a near pass-through) — that's fine; it keeps route handlers HTTP-only and the seam uniform.
+- **Domain is pure** — business rules + types, zero deps, unit-tested directly. Repository **interfaces** (the contracts) live here.
+- **Infrastructure is the only code that touches the DB or external systems** — the Prisma client and the repository **implementation**. No Prisma calls outside `src/infrastructure/`.
 
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
@@ -114,19 +119,21 @@ Tests ship in the same change as the code. "I'll add tests later" means never.
 # Logging
 
 - **pino, JSON to stdout, no transports in prod** (Vercel ingests stdout natively; worker-thread transports break under serverless bundling). `pino-pretty` in dev only.
-- Server-only singleton in `lib/logger.ts`. Wrap Route Handlers with a `withRequestLog` helper that emits one `http.request.completed` line per call (route, method, status, durationMs) and passes a request-scoped child logger to the handler for domain events.
+- Server-only singleton in `src/lib/logger.ts`. Wrap Route Handlers with a `withRequestLog` helper that emits one `http.request.completed` line per call (route, method, status, durationMs) and passes a request-scoped child logger to the handler for domain events.
 - **Never log request bodies or PII** (this app captures health data — height/weight/demographics). Log counts, sizes, and outcomes, not values. Redact `authorization`/`cookie` headers.
 - **Event naming:** `domain.action.outcome` (e.g. `record.created`, `record.list.failed`). Levels: error = unexpected/5xx, warn = rejected/4xx, info = completions, debug = detail. `LOG_LEVEL` env controls verbosity (default `info`; `silent` under test).
 
 # Before you claim done — the finish-line gate
 
-On any turn with code or behavior changes, you may NOT declare done until, in the SAME turn, you have:
+On **any** turn that produces a durable change — code, behavior, **or a committed doc/spec** — you may NOT declare done until, in the SAME turn, you have:
 1. Re-read the original ask and listed what it required.
-2. Run `npm test`, `npm run build`, and `eslint` **fresh**, and shown exit codes + pass/fail counts (not "should pass").
+2. Run `npm test`, `npm run build`, and `eslint` **fresh**, and shown exit codes + pass/fail counts (not "should pass"). (Skip only when the change touches no code — e.g. a docs-only spec.)
 3. Invoked `superpowers:verification-before-completion`.
 4. For a **behavior change**, run a **live** check — Playwright driving system Chrome (`channel: 'chrome'`) against the running app.
 5. **Presented the evidence and confirmed with the human before the final claim/commit.** (Skip only for pure questions or trivial edits.)
 6. Before merging: `superpowers:requesting-code-review`, then `superpowers:finishing-a-development-branch`.
+7. **OPENED A PR.** If the change is committed, it MUST live on a branch that is **pushed** and has an **open `gh pr create` PR** against `main`. A local commit is NOT done — "done" for anything committed means a PR URL exists and has been handed to the human. Never end a turn with a committed-but-unpushed branch or a pushed branch without a PR. (This overrides any skill that says to stop at a commit.)
+8. **CLEANED UP THE WORKTREE.** If the work was done in a worktree (`.claude/worktrees/…`), once the branch is pushed and the PR is open, REMOVE the worktree (`ExitWorktree` → `remove`; discarded local commits are safe because they live on the pushed remote branch). Never leave a dangling worktree behind — a pushed PR branch makes the local worktree disposable. Do not report "done" with a stale worktree still on disk.
 
 # Skills to invoke
 
@@ -139,6 +146,14 @@ Mandatory. Invoke BEFORE touching code.
 - Postgres perf → `supabase:supabase-postgres-best-practices`.
 - Addressing review feedback → `superpowers:receiving-code-review`. Each comment is a sample — grep for the same pattern elsewhere and fix it everywhere.
 
+# Writing docs & specs — no speculation, no slop
+
+Rules learned from a real mistake made in this repo. Follow them:
+- **Match the altitude of the ask.** "Define the structure" means directories and their purpose — NOT invented filenames, function signatures, or code snippets. Produce exactly what was asked and nothing more.
+- **Never write things that don't exist.** Do not put files, functions, APIs, or example code into a doc unless they exist or have been explicitly decided. A future reader treats them as real and builds on the hallucination. If a detail is deferred, write "deferred to implementation" — do not invent it.
+- **Document only what's decided.** A spec records settled decisions + rationale, not a guess at how it'll be built.
+- **Prefer folding into AGENTS.md over a new spec.** Before creating a standalone doc, ask: is this small enough to live here? A tiny thing (a few dirs + a rule) in its own file becomes a second source of truth that drifts and invites hallucination. One source of truth wins; add a separate spec only when the content is genuinely large or self-contained.
+
 # Project memory
 
 All project knowledge — conventions, decisions, status — lives in THIS repo (`AGENTS.md` and `docs/`), never in agent-private (`~/.claude`) memory. This **overrides** the default `# Memory` system instruction for anything project-related. Learn something worth keeping? Put a rule/convention in `AGENTS.md` or a decision/status note in `docs/` in the same change.
@@ -147,8 +162,9 @@ All project knowledge — conventions, decisions, status — lives in THIS repo 
 
 - **Always commit as `geliwer@gmail.com`** (name `aheliver`). Verify `git config user.email` before committing; set repo-locally if wrong. Do NOT author under any other email.
 - **Never merge to `main` directly.** All changes land via a GitHub PR. No `git merge` into `main`, no `git push origin main`.
-- **Always open a PR** with `gh pr create` when work is ready. Let the user merge from GitHub.
+- **Always open a PR** with `gh pr create` when work is ready. Let the user merge from GitHub. **A commit without a pushed branch and an open PR is unfinished work** — the turn is not done until the PR URL exists (see the finish-line gate). This applies to docs/specs too, not just code.
 - **Never force-push without explicit permission in the same turn.** Default: a new commit on top. If a force-push is genuinely needed, ASK first.
 - **Controller owns all git in worktrees.** The main session runs every `git commit`/`push`/`checkout`/`gh pr`. Subagents may edit/test/build — never git mutations.
+- **Remove the worktree when finishing.** After the branch is pushed and the PR is open, `ExitWorktree` → `remove` — the work is safe on the remote. Never leave a stale worktree in `.claude/worktrees/` after the work is done (see finish-line gate step 8).
 - **Never trust a local `main`/`origin/main` ref — `git fetch origin` first** before claiming a diff is clean; diff against freshly-fetched `origin/main`.
 - This repo squash-merges: find merged branches with `gh pr list --state merged`, not `git branch --merged`.
