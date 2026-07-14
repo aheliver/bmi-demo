@@ -1,7 +1,7 @@
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know
 
-This version (16.x) has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+This version (16.x) has breaking changes — APIs, conventions, and file structure may all differ from your training data. Consult the `vercel:nextjs` skill (and the official v16 upgrade guide) before writing code. Heed deprecation notices.
 
 Key shifts from prior versions:
 - **Middleware is renamed to Proxy** — use `proxy.ts` at project root, not `middleware.ts`.
@@ -12,7 +12,7 @@ Key shifts from prior versions:
 - **Cache Components** (`use cache`, `cacheLife`, `cacheTag`, `updateTag`) — prefer over `unstable_cache`.
 - **Server data → client island: use React Query hydration, never prop-drill.** When a Server Component fetches per-request data for a client island that reads server state via React Query, prefetch it on the server and hand it over with `dehydrate` + `<HydrationBoundary>`; the island reads it with `useQuery` from the hydrated cache. Do NOT pass an `initial` payload as a prop — it desyncs from the query cache and forces you to reconcile two sources of the same state.
 - **Server Components by default** — only mark `'use client'` for components that need state, effects, or browser APIs.
-- ESLint runs via `eslint` CLI (not `next lint`).
+- **ESLint runs via the `eslint` CLI** (`next lint` was removed in v16).
 <!-- END:nextjs-agent-rules -->
 
 # The Stack — strict, non-negotiable
