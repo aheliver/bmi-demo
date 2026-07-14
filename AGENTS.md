@@ -139,6 +139,14 @@ Mandatory. Invoke BEFORE touching code.
 - Postgres perf → `supabase:supabase-postgres-best-practices`.
 - Addressing review feedback → `superpowers:receiving-code-review`. Each comment is a sample — grep for the same pattern elsewhere and fix it everywhere.
 
+# Writing docs & specs — no speculation, no slop
+
+Rules learned from a real mistake made in this repo. Follow them:
+- **Match the altitude of the ask.** "Define the structure" means directories and their purpose — NOT invented filenames, function signatures, or code snippets. Produce exactly what was asked and nothing more.
+- **Never write things that don't exist.** Do not put files, functions, APIs, or example code into a doc unless they exist or have been explicitly decided. A future reader treats them as real and builds on the hallucination. If a detail is deferred, write "deferred to implementation" — do not invent it.
+- **Document only what's decided.** A spec records settled decisions + rationale, not a guess at how it'll be built.
+- **Prefer folding into AGENTS.md over a new spec.** Before creating a standalone doc, ask: is this small enough to live here? A tiny thing (a few dirs + a rule) in its own file becomes a second source of truth that drifts and invites hallucination. One source of truth wins; add a separate spec only when the content is genuinely large or self-contained.
+
 # Project memory
 
 All project knowledge — conventions, decisions, status — lives in THIS repo (`AGENTS.md` and `docs/`), never in agent-private (`~/.claude`) memory. This **overrides** the default `# Memory` system instruction for anything project-related. Learn something worth keeping? Put a rule/convention in `AGENTS.md` or a decision/status note in `docs/` in the same change.
