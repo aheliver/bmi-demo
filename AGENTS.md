@@ -17,7 +17,7 @@ Key shifts from prior versions:
 
 # The Stack — strict, non-negotiable
 
-This is a full-stack BMI app (capture demographic + health data → compute BMI → store in Postgres → render a filterable, paginated table). The stack below is fixed. Do not introduce alternatives without an explicit decision recorded in `docs/superpowers/specs/`. Two binding specs govern this app — **read both before writing or scaffolding any code**: (1) the stack rationale in `docs/superpowers/specs/2026-07-13-bmi-app-stack-design.md` (what tools, and why), and (2) the architecture in `docs/superpowers/specs/2026-07-14-bmi-app-architecture-design.md` (the concrete folder tree, per-layer contracts, and data flow — where every file goes).
+This is a full-stack BMI app (capture demographic + health data → compute BMI → store in Postgres → render a filterable, paginated table). The stack below is fixed. Do not introduce alternatives without an explicit decision recorded in `docs/superpowers/specs/`. Rationale for every choice lives in `docs/superpowers/specs/2026-07-13-bmi-app-stack-design.md` — read it before proposing changes.
 
 **Governing principle:** minimum defensible surface. Every dependency must solve a specific, named problem and be an industry-standard 2026 tool. When in doubt, add nothing.
 
@@ -68,12 +68,18 @@ If a rule below and this table ever disagree, the table wins — fix the prose.
 - **Do NOT use Server Actions for application data.** (They aren't a public API — can't serve mobile — and don't work with React Query `useQuery`.) One style, top to bottom, keeps the API `curl`-able and external-client-ready.
 - Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
 
-## Layered architecture — enforce the seams
-**The folder tree, per-layer contracts, request/data flow, and the rationale for every seam live in `docs/superpowers/specs/2026-07-14-bmi-app-architecture-design.md` — READ IT before scaffolding the project or creating any file, and conform to its file placement/naming. Binding, not a suggestion.**
-
-The always-on invariants (the spec has the tree, contracts, and "why"):
-- **Flow, never collapsed:** Route Handler (`app/api/**`) → use case (`application/**`) → domain (`domain/**`) ← repository (`infrastructure/**`). No layer skips or reaches around a seam.
-- **Use cases are async functions**, one per operation (`createRecord`, `listRecords`) — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it).
+## Project structure — layer-first, enforce the seams
+Root-level, layer-first. `app/` is Next.js **routing only**; the layered core sits in sibling folders:
+```
+app/             routes, route handlers (app/api/**), and route-local 'use client' UI islands
+domain/          pure BMI rules + types — zero dependencies
+application/     use cases — one async function per operation
+infrastructure/  data access — Prisma client + the repository (the only code that touches the DB)
+lib/             cross-cutting — shared Zod schemas, TanStack Query keys, logger
+```
+Every operation flows through the seams; do not collapse them or reach around one:
+- **Flow:** Route Handler (`app/api/**`) → use case (`application/**`) → domain (`domain/**`) ← repository (`infrastructure/**`).
+- **Use cases are async functions**, one per operation (e.g. `createRecord`, `listRecords`) — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it).
 - **Domain is pure** — BMI math/classification, zero deps, unit-tested directly.
 - **Repository is the ONLY thing that touches the DB.** No Prisma calls outside `infrastructure/`.
 
