@@ -33,10 +33,10 @@ This is a full-stack BMI app (capture demographic + health data → compute BMI 
 | Styling | Tailwind v4 utilities + `@theme` tokens | custom `.css`, CSS modules, styled-components, inline style hacks |
 | Forms | React Hook Form | uncontrolled ad-hoc forms; Formik |
 | Validation | Zod (one schema, client + server) | yup/joi; validating on one side only |
-| Client↔server | Route Handlers (`app/api/**`), REST | Server Actions for app data; tRPC; GraphQL |
-| App logic | use-case async functions (`application/**`) | logic in route handlers or components |
-| Domain | pure functions (`domain/**`) | side effects / IO in domain code |
-| Data access | Repository + Prisma (`infrastructure/**`) | Prisma calls outside the repository; raw string SQL |
+| Client↔server | Route Handlers (`src/app/api/**`), REST | Server Actions for app data; tRPC; GraphQL |
+| App logic | use-case async functions (`src/services/**`) | logic in route handlers or components |
+| Domain | pure functions (`src/domain/**`) | side effects / IO in domain code |
+| Data access | Repository + Prisma (`src/infrastructure/**`) | Prisma calls outside the repository; raw string SQL |
 | Database | PostgreSQL | SQLite/MySQL/Mongo |
 | Data fetching | TanStack Query (React Query), SSR-hydrated | `fetch` in components w/o React Query; SWR |
 | HTTP transport (inside `queryFn`/`mutationFn`) | native `fetch` | axios/ky/superagent |
@@ -64,24 +64,30 @@ If a rule below and this table ever disagree, the table wins — fix the prose.
 - **Validate on BOTH sides from the SAME schema:** client via `@hookform/resolvers/zod` (UX), and re-parse server-side in the Route Handler (trust boundary). Client validation is UX; **server validation is security.** Never trust client input.
 
 ## Communication layer — Route Handlers only
-- **All client↔server data goes through Route Handlers (REST): `app/api/**/route.ts`.** This is the *only* communication style. **This app needs only `GET /api/records` (list, filtered/paginated) and `POST /api/records` (create).** Do not build `PUT`/`DELETE` or other endpoints unless a task explicitly requires them.
+- **All client↔server data goes through Route Handlers (REST): `src/app/api/**/route.ts`.** This is the *only* communication style. **This app needs only `GET /api/records` (list, filtered/paginated) and `POST /api/records` (create).** Do not build `PUT`/`DELETE` or other endpoints unless a task explicitly requires them.
 - **Do NOT use Server Actions for application data.** (They aren't a public API — can't serve mobile — and don't work with React Query `useQuery`.) One style, top to bottom, keeps the API `curl`-able and external-client-ready.
 - Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
 
-## Project structure — layer-first, enforce the seams
-Root-level, layer-first. `app/` is Next.js **routing only**; the layered core sits in sibling folders:
+## Project structure — layer-first under `src/`, enforce the seams
+Application code lives under `src/`; config/tooling stays at the repo root. `app/` is Next.js **routing only**. Folders and what each holds (guidance — no fixed file list):
 ```
-app/             routes, route handlers (app/api/**), and route-local 'use client' UI islands
-domain/          pure BMI rules + types — zero dependencies
-application/     use cases — one async function per operation
-infrastructure/  data access — Prisma client + the repository (the only code that touches the DB)
-lib/             cross-cutting — shared Zod schemas, TanStack Query keys, logger
+src/
+  app/              # Next.js routing only — pages and route handlers
+  domain/           # pure, framework-free core — entities, business rules,
+                    #   validators, and repository interfaces (the contracts)
+  services/         # use cases — orchestrate domain and repositories
+  infrastructure/   # the outside world — external SDK clients and repository implementations
+  components/       # shared UI, including shadcn primitives
+  providers/        # app-level React context providers, wired into the layout
+  hooks/            # shared React hooks
+  lib/              # generic helpers with no external I/O
+prisma/             # schema and migrations — stays at repo root
 ```
-Every operation flows through the seams; do not collapse them or reach around one:
-- **Flow:** Route Handler (`app/api/**`) → use case (`application/**`) → domain (`domain/**`) ← repository (`infrastructure/**`).
-- **Use cases are async functions**, one per operation (e.g. `createRecord`, `listRecords`) — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it).
-- **Domain is pure** — BMI math/classification, zero deps, unit-tested directly.
-- **Repository is the ONLY thing that touches the DB.** No Prisma calls outside `infrastructure/`.
+Dependency direction — never collapse a seam or reach around one:
+- **Flow:** `app → services → domain ← infrastructure`. `domain/` imports nothing.
+- **Use cases live in `services/`**, one async function per operation — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it). A use case may be thin (a near pass-through) — that's fine; it keeps route handlers HTTP-only and the seam uniform.
+- **Domain is pure** — business rules + types, zero deps, unit-tested directly. Repository **interfaces** (the contracts) live here.
+- **Infrastructure is the only code that touches the DB or external systems** — the Prisma client and the repository **implementation**. No Prisma calls outside `src/infrastructure/`.
 
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
@@ -113,7 +119,7 @@ Tests ship in the same change as the code. "I'll add tests later" means never.
 # Logging
 
 - **pino, JSON to stdout, no transports in prod** (Vercel ingests stdout natively; worker-thread transports break under serverless bundling). `pino-pretty` in dev only.
-- Server-only singleton in `lib/logger.ts`. Wrap Route Handlers with a `withRequestLog` helper that emits one `http.request.completed` line per call (route, method, status, durationMs) and passes a request-scoped child logger to the handler for domain events.
+- Server-only singleton in `src/lib/logger.ts`. Wrap Route Handlers with a `withRequestLog` helper that emits one `http.request.completed` line per call (route, method, status, durationMs) and passes a request-scoped child logger to the handler for domain events.
 - **Never log request bodies or PII** (this app captures health data — height/weight/demographics). Log counts, sizes, and outcomes, not values. Redact `authorization`/`cookie` headers.
 - **Event naming:** `domain.action.outcome` (e.g. `record.created`, `record.list.failed`). Levels: error = unexpected/5xx, warn = rejected/4xx, info = completions, debug = detail. `LOG_LEVEL` env controls verbosity (default `info`; `silent` under test).
 
