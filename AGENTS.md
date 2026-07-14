@@ -21,6 +21,35 @@ This is a full-stack BMI app (capture demographic + health data → compute BMI 
 
 **Governing principle:** minimum defensible surface. Every dependency must solve a specific, named problem and be an industry-standard 2026 tool. When in doubt, add nothing.
 
+## Canonical stack — the single source of truth
+
+**Before writing or changing any code, confirm it conforms to this table. If a task would require a tool NOT listed here, STOP and get an explicit decision — do not improvise a substitute.**
+
+| Concern | MUST use | MUST NOT use |
+|---|---|---|
+| Framework | Next.js 16, App Router | pages router; any other framework |
+| Language | TypeScript | plain JS |
+| UI components | shadcn/ui (Radix primitives) | hand-written HTML controls; MUI/Chakra/AntD |
+| Styling | Tailwind v4 utilities + `@theme` tokens | custom `.css`, CSS modules, styled-components, inline style hacks |
+| Forms | React Hook Form | uncontrolled ad-hoc forms; Formik |
+| Validation | Zod (one schema, client + server) | yup/joi; validating on one side only |
+| Client↔server | Route Handlers (`app/api/**`), REST | Server Actions for app data; tRPC; GraphQL |
+| App logic | use-case async functions (`application/**`) | logic in route handlers or components |
+| Domain | pure functions (`domain/**`) | side effects / IO in domain code |
+| Data access | Repository + Prisma (`infrastructure/**`) | Prisma calls outside the repository; raw string SQL |
+| Database | PostgreSQL | SQLite/MySQL/Mongo |
+| Data fetching | TanStack Query (React Query), SSR-hydrated | `fetch` in components w/o React Query; SWR |
+| HTTP transport (inside `queryFn`/`mutationFn`) | native `fetch` | axios/ky/superagent |
+| URL/filter state | nuqs | ad-hoc `useState` for filters not synced to URL |
+| Local UI state (dialogs, form steps) | React `useState`/`useReducer` | Redux/Zustand/Jotai/global store; Context as a data store |
+| Table | shadcn Data Table / TanStack Table, server-side filter/sort/paginate | client-side filtering of the full dataset |
+| Notifications / toasts | shadcn toast (sonner) | react-hot-toast/react-toastify/custom |
+| Unit/component tests | Vitest + Testing Library | Jest; `node:test` |
+| E2E / live check | Playwright (system Chrome, `channel: 'chrome'`) | Cypress; Selenium |
+| Package manager | npm | pnpm/yarn/bun |
+
+If a rule below and this table ever disagree, the table wins — fix the prose.
+
 ## Framework & language
 - **Next.js 16 (App Router) + TypeScript.** No pages router. Server Components by default.
 
@@ -35,7 +64,7 @@ This is a full-stack BMI app (capture demographic + health data → compute BMI 
 - **Validate on BOTH sides from the SAME schema:** client via `@hookform/resolvers/zod` (UX), and re-parse server-side in the Route Handler (trust boundary). Client validation is UX; **server validation is security.** Never trust client input.
 
 ## Communication layer — Route Handlers only
-- **All client↔server data goes through Route Handlers (REST): `app/api/**/route.ts`.** GET for reads, POST/PUT/DELETE for writes. This is the *only* communication style.
+- **All client↔server data goes through Route Handlers (REST): `app/api/**/route.ts`.** This is the *only* communication style. **This app needs only `GET /api/records` (list, filtered/paginated) and `POST /api/records` (create).** Do not build `PUT`/`DELETE` or other endpoints unless a task explicitly requires them.
 - **Do NOT use Server Actions for application data.** (They aren't a public API — can't serve mobile — and don't work with React Query `useQuery`.) One style, top to bottom, keeps the API `curl`-able and external-client-ready.
 - Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
 
