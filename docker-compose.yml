@@ -1,0 +1,23 @@
+# Local PostgreSQL for development. Start with `npm run db:up`, stop with `npm run db:down`.
+# Credentials must match DATABASE_URL in .env / .env.example.
+services:
+  db:
+    image: postgres:17
+    container_name: bmi_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bmi
+      POSTGRES_PASSWORD: bmi
+      POSTGRES_DB: bmi
+    ports:
+      - "5432:5432"
+    volumes:
+      - bmi_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bmi -d bmi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  bmi_pgdata:

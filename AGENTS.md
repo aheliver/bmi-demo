@@ -45,7 +45,7 @@ This is a full-stack BMI app (capture demographic + health data → compute BMI 
 | Table | shadcn Data Table / TanStack Table, server-side filter/sort/paginate | client-side filtering of the full dataset |
 | Notifications / toasts | shadcn toast (sonner) | react-hot-toast/react-toastify/custom |
 | Unit/component tests | Vitest + Testing Library | Jest; `node:test` |
-| E2E / live check | Playwright (system Chrome, `channel: 'chrome'`) | Cypress; Selenium |
+| E2E / live check | Playwright (bundled Chromium, version-pinned) | Cypress; Selenium |
 | Package manager | npm | pnpm/yarn/bun |
 
 If a rule below and this table ever disagree, the table wins — fix the prose.
@@ -129,7 +129,7 @@ On **any** turn that produces a durable change — code, behavior, **or a commit
 1. Re-read the original ask and listed what it required.
 2. Run `npm test`, `npm run build`, and `eslint` **fresh**, and shown exit codes + pass/fail counts (not "should pass"). (Skip only when the change touches no code — e.g. a docs-only spec.)
 3. Invoked `superpowers:verification-before-completion`.
-4. For a **behavior change**, run a **live** check — Playwright driving system Chrome (`channel: 'chrome'`) against the running app.
+4. For a **behavior change**, run a **live** check — Playwright driving bundled Chromium against the running app.
 5. **Presented the evidence and confirmed with the human before the final claim/commit.** (Skip only for pure questions or trivial edits.)
 6. Before merging: `superpowers:requesting-code-review`, then `superpowers:finishing-a-development-branch`.
 7. **OPENED A PR.** If the change is committed, it MUST live on a branch that is **pushed** and has an **open `gh pr create` PR** against `main`. A local commit is NOT done — "done" for anything committed means a PR URL exists and has been handed to the human. Never end a turn with a committed-but-unpushed branch or a pushed branch without a PR. (This overrides any skill that says to stop at a commit.)
