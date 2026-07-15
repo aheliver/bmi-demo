@@ -13,6 +13,11 @@
 # testing
 /coverage
 
+# playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
 # next.js
 /.next/
 /out/
@@ -48,7 +53,13 @@ next-env.d.ts
 # Auto-copied by scripts/copy-pdfjs-worker.mjs
 /public/pdf.worker.min.mjs
 .claude/worktrees/*
-.vscode
+
+# vscode — ignore personal files, but keep shared team config
+.vscode/*
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
 
 # conversion-service build output
 conversion-service/dist
@@ -57,3 +68,5 @@ conversion-service/node_modules
 
 # superpowers SDD scratch (task/trial reports, progress ledger)
 .superpowers/
+
+/src/lib/generated/prisma
