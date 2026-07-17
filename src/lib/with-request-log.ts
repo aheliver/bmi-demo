@@ -1,3 +1,5 @@
+import { unstable_rethrow } from "next/navigation"
+
 import { logger, type Logger } from "./logger"
 
 type Handler = (req: Request, log: Logger) => Promise<Response>
@@ -15,6 +17,9 @@ export function withRequestLog(event: string, handler: Handler) {
       )
       return res
     } catch (err) {
+      // Re-throw Next.js control-flow signals (redirect, notFound, prerender bail-out) —
+      // they are not real failures and must propagate for the framework to handle.
+      unstable_rethrow(err)
       log.error(
         { method, status: 500, durationMs: Math.round(performance.now() - start), err },
         "http.request.failed",
