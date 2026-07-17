@@ -110,6 +110,7 @@ Placement — decide by reuse and by I/O:
 
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
+- **Never hand-write a type that mirrors a Prisma query.** Infer it from the generated client — `Prisma.<Model>GetPayload<{ select: typeof <sel> }>` for a row, `Prisma.<Model>WhereInput` etc. for args — so the type cannot drift from the query. A hand-maintained row/`Row` type is duplicated truth; delete it.
 - **Data fetching: TanStack Query (React Query).** Reads via `useQuery` → GET Route Handler; writes via `useMutation` → the appropriate write Route Handler (`POST`/`PUT`/`PATCH`/`DELETE`), then `invalidateQueries`. SSR-prefetch + hydrate per the Next 16 rule above.
 - **Client data-fetching code lives with its feature — NOT in `lib/` or `infrastructure/`.** Colocate the fetcher (plain `fetch` function), its TanStack v5 `queryOptions(...)` (one source of truth for `queryKey` + `queryFn`, reused by `useQuery` and the SSR `prefetchQuery`), and the `useQuery`/`useMutation` hook in `src/features/<feature>/api/<action>.ts` (bulletproof-react api-layer pattern). Rationale: `infrastructure/` is **server-only** (Prisma — can't run in the browser); `lib/` is for **I/O-free** helpers, and a `fetch` fetcher does network I/O. The browser→own-API HTTP client is a distinct concern from the server's Prisma repository.
 

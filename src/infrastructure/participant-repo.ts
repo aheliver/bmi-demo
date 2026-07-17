@@ -1,4 +1,5 @@
 import { prisma } from "./prisma"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import type { RecordsQuery, RecordsResponse, Record } from "@/features/records/schema"
 
 const listSelect = {
@@ -14,20 +15,7 @@ const listSelect = {
   createdAt: true,
 } as const
 
-type Decimalish = { toNumber(): number }
-
-type Row = {
-  id: number
-  firstName: string
-  lastName: string
-  dob: Date
-  weightKg: Decimalish
-  weightLb: Decimalish
-  heightCm: Decimalish
-  heightIn: Decimalish
-  bmi: Decimalish
-  createdAt: Date
-}
+type Row = Prisma.ParticipantGetPayload<{ select: typeof listSelect }>
 
 function toRecord(row: Row): Record {
   return {
