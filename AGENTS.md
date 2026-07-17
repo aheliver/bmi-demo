@@ -15,6 +15,19 @@ Key shifts from prior versions:
 - **ESLint runs via the `eslint` CLI** (`next lint` was removed in v16).
 <!-- END:nextjs-agent-rules -->
 
+# Simplicity Gate — run this BEFORE writing or changing code
+
+Governing principle: **minimum defensible surface — when in doubt, add nothing.** Every layer, file, hook, and test must earn its place. Before adding code, confirm ALL of these; if any fails, don't add it:
+
+- **No single-use indirection.** A hook, wrapper, or function called from exactly one place and adding no logic is not an abstraction — inline it. (Don't wrap a one-line `useQuery` in a `useXxx` hook.)
+- **No pass-through layer.** A function or module that only forwards its arguments to one other call adds nothing — call the target directly. A layer exists only when it orchestrates, validates, or transforms.
+- **No re-export-only or barrel files.** Import from the source.
+- **No useless test.** A test earns its place only if it FAILS when real logic breaks. Delete duplicates, tautologies (asserting a mock returns what you configured), render-mirrors, and tests that only exercise Zod primitives.
+- **No explanatory comments.** Names and types carry the meaning. A comment is justified only for a genuinely non-obvious *why* the code cannot express — this is rare. Never narrate *what* the code does.
+- **One source of truth.** Never re-declare a constant, type, or vocabulary that already exists — import it. Derive (e.g. a type from its Zod schema) instead of duplicating.
+
+If a change grows the diff without making behavior clearer or safer, that's drift. Stop.
+
 # The Stack — strict, non-negotiable
 
 This is a full-stack BMI app (capture demographic + health data → compute BMI → store in Postgres → render a filterable, paginated table). The stack below is fixed. Do not introduce alternatives without an explicit decision recorded in `docs/superpowers/specs/`. Rationale for every choice lives in `docs/superpowers/specs/2026-07-13-bmi-app-stack-design.md` — read it before proposing changes.
@@ -34,11 +47,12 @@ This is a full-stack BMI app (capture demographic + health data → compute BMI 
 | Forms | React Hook Form | uncontrolled ad-hoc forms; Formik |
 | Validation | Zod (one schema, client + server) | yup/joi; validating on one side only |
 | Client↔server | Route Handlers (`src/app/api/**`), REST | Server Actions for app data; tRPC; GraphQL |
-| App logic | use-case async functions (`src/services/**`) | logic in route handlers or components |
-| Domain | pure functions (`src/domain/**`) | side effects / IO in domain code |
+| Use cases | `src/services/**` — ONLY when orchestrating multiple steps | a "service" that only forwards one call; logic in route handlers/components |
+| Pure logic | plain, I/O-free functions in `src/lib/**`, unit-tested | side effects / IO in these helpers; a separate `domain/` layer |
 | Data access | Prisma via plain functions in `src/infrastructure/**` | Prisma calls outside `src/infrastructure/`; raw string SQL |
 | Database | PostgreSQL | SQLite/MySQL/Mongo |
 | Data fetching | TanStack Query (React Query), SSR-hydrated | `fetch` in components w/o React Query; SWR |
+| Client fetch code | per-feature `src/features/<f>/api/` (queryKey + fetcher) | one-use hooks; fetchers in `lib/` or `infrastructure/` |
 | HTTP transport (inside `queryFn`/`mutationFn`) | native `fetch` | axios/ky/superagent |
 | URL/filter state | nuqs | ad-hoc `useState` for filters not synced to URL |
 | Local UI state (dialogs, form steps) | React `useState`/`useReducer` | Redux/Zustand/Jotai/global store; Context as a data store |
@@ -68,26 +82,31 @@ If a rule below and this table ever disagree, the table wins — fix the prose.
 - **Do NOT use Server Actions for application data.** (They aren't a public API — can't serve mobile — and don't work with React Query `useQuery`.) One style, top to bottom, keeps the API `curl`-able and external-client-ready.
 - Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
 
-## Project structure — layer-first under `src/`, enforce the seams
-Application code lives under `src/`; config/tooling stays at the repo root. `app/` is Next.js **routing only**. Folders and what each holds (guidance — no fixed file list):
+## Project structure — feature-first under `src/`
+Application code lives under `src/`; config/tooling stays at the repo root. `app/` is Next.js **routing only** and stays thin — it imports from features. Group code by feature, not by technical layer; only genuinely-shared code sits at the `src/` top level (bulletproof-react pattern).
 ```
 src/
-  app/              # Next.js routing only — pages and route handlers
-  domain/           # pure, framework-free core — entities, business rules,
-                    #   validators, and repository interfaces (the contracts)
-  services/         # use cases — orchestrate domain and repositories
-  infrastructure/   # the outside world — external SDK clients and repository implementations
-  components/       # shared UI, including shadcn primitives
-  providers/        # app-level React context providers, wired into the layout
-  hooks/            # shared React hooks
-  lib/              # generic helpers with no external I/O
-prisma/             # schema and migrations — stays at repo root
+  app/              # Next.js routing ONLY — thin pages + route handlers that import from features
+  features/<name>/  # a feature owns its slice:
+                    #   api/         client fetchers (queryKey + fetch fn) — the browser→API HTTP client
+                    #   components/  components scoped to the feature
+                    #   schema.ts    the feature's API contract (Zod request + response shapes)
+                    #   hooks/       hooks scoped to the feature
+  infrastructure/   # the outside world — Prisma client + data-access functions (server-only)
+  components/        # shared UI (incl. shadcn primitives) + app-shell used across features
+  providers/         # app-level React context providers, wired into the layout
+  hooks/             # hooks shared by 2+ features
+  lib/               # pure, I/O-free shared helpers (bmi, formatting, query-client, logger)
+  config/            # app-wide constants and configuration
+prisma/              # schema and migrations — stays at repo root
 ```
-Dependency direction — never collapse a seam or reach around one:
-- **Flow:** `app → services → domain ← infrastructure`. `domain/` imports nothing.
-- **Use cases live in `services/`**, one async function per operation — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it). A use case may be thin (a near pass-through) — that's fine; it keeps route handlers HTTP-only and the seam uniform.
-- **Domain is pure** — business rules + types, zero deps (Zod is the one sanctioned exception, for validators), unit-tested directly.
-- **Infrastructure is the only code that touches the DB or external systems.** Data access is a **module of plain async functions** (e.g. `listParticipants(query)`) — Prisma already returns plain objects, so a repository class/interface adds ceremony without benefit. Add a domain-side interface only when a second implementation or DI genuinely earns it. No Prisma calls outside `src/infrastructure/`.
+Placement — decide by reuse and by I/O:
+- **Used by one feature → inside that feature. Used by 2+ features / app-wide → the `src/` top level.**
+- **Data access / repositories → always `infrastructure/`, never a feature.** It is the DB seam and is server-only (Prisma can't run in the browser). No Prisma calls outside `src/infrastructure/`. Data access is a module of plain async functions (e.g. `listParticipants(query)`) — Prisma returns plain objects, so a repository class/interface adds ceremony without benefit.
+- **Client fetch code → the feature's `api/`.** A `fetch` does network I/O, so it belongs neither in `lib/` (I/O-free) nor `infrastructure/` (server-only).
+- **Pure business logic + shared vocabulary → `lib/`**, I/O-free and unit-tested. No separate `domain/` layer — that is backend-DDD ceremony this app doesn't need.
+- **Zod schemas live at the boundary that owns them** — a feature's `schema.ts` for its API contract, NOT a shared "domain" bucket. A vocabulary reused by many features (e.g. the unit system) may live in `lib/`.
+- **`services/` only when a use case orchestrates** multiple steps (validate → compute → persist). A one-line forward is not a layer — call the target directly (route handler → repository).
 
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
@@ -105,7 +124,9 @@ Tests ship in the same change as the code. "I'll add tests later" means never.
 - **Validation** — the Zod schema for each shape: valid input passes, invalid (out-of-range, wrong type, missing) is rejected.
 - **Repository / use cases** — filtering, pagination, and other data behavior against a test DB or a faked repository.
 
-**No useless tests.** A test earns its place only if it would FAIL when real logic breaks. Do NOT write (and delete when you find): duplicates, trivial pass-throughs already covered transitively, tautologies (asserting a mock returns what you configured), or config/schema mirrors.
+**No useless tests.** A test earns its place only if it would FAIL when real logic breaks. Do NOT write (and delete when you find): duplicates, trivial pass-throughs already covered transitively, tautologies (asserting a mock returns what you configured), render-mirrors, or config/schema mirrors.
+
+**No committed e2e specs.** Playwright drives the **live** finish-line check (below), but e2e `*.spec.ts` files are NOT committed to the repo — they rot fast and duplicate the unit/integration coverage.
 
 **TDD:** Invoke `superpowers:test-driven-development` BEFORE implementation. Cycle: failing test → minimum impl → pass → refactor.
 
