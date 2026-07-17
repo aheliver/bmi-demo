@@ -92,7 +92,7 @@ Dependency direction — never collapse a seam or reach around one:
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
 - **Data fetching: TanStack Query (React Query).** Reads via `useQuery` → GET Route Handler; writes via `useMutation` → the appropriate write Route Handler (`POST`/`PUT`/`PATCH`/`DELETE`), then `invalidateQueries`. SSR-prefetch + hydrate per the Next 16 rule above.
-- **URL state: nuqs.** Filter/sort/page state lives in the URL (typed), and is the React Query key. Shareable, bookmarkable, back-button-safe.
+- **Client data-fetching code lives with its feature — NOT in `lib/` or `infrastructure/`.** Colocate the fetcher (plain `fetch` function), its TanStack v5 `queryOptions(...)` (one source of truth for `queryKey` + `queryFn`, reused by `useQuery` and the SSR `prefetchQuery`), and the `useQuery`/`useMutation` hook in `src/features/<feature>/api/<action>.ts` (bulletproof-react api-layer pattern). Rationale: `infrastructure/` is **server-only** (Prisma — can't run in the browser); `lib/` is for **I/O-free** helpers, and a `fetch` fetcher does network I/O. The browser→own-API HTTP client is a distinct concern from the server's Prisma repository.
 
 # Testing — non-negotiable
 
