@@ -4,7 +4,7 @@
 
 **Goal:** Ship the home page — a paginated (20/page) table of participant BMI records with a header unit-system toggle (Metric ↔ Imperial), a placeholder footer, and a bottom-right Add FAB — backed by the two-table Postgres schema, an SSR-hydrated React Query read, and a Zod contract shared by client and server.
 
-**Architecture:** Layer-first per `AGENTS.md` (`app → services → domain ← infrastructure`). The **shared Zod record contract lives in `src/domain/`** and is the spine: the repository maps Prisma rows to it, the use case returns it, the GET route handler re-validates the query with it, and the client parses/renders it — one schema, both sides. The row DTO carries **canonical numbers** (`weightKg`, `heightCm`) so the header toggle re-renders Metric/Imperial via pure domain conversions with **no refetch**. Postgres owns the canonical columns as generated STORED columns; BMI is a pure domain function, written to the DB only by the seed (this feature is GET-only).
+**Architecture:** Layer-first per `AGENTS.md` (`app → services → domain ← infrastructure`). The **shared Zod record contract lives in `src/domain/`** and is the spine: the repository maps Prisma rows to it, the use case returns it, the GET route handler re-validates the query with it, and the client parses/renders it — one schema, both sides. The row DTO carries **both unit systems** (`weightKg`+`weightLb`, `heightCm`+`heightIn`) — all computed by Postgres as generated STORED columns — so the header toggle re-renders Metric/Imperial by **selecting and formatting** the right column, with **no refetch and no read-time conversion**. BMI is a pure domain function, written to the DB only by the seed (this feature is GET-only).
 
 **Tech Stack:** Next.js 16 (App Router, RSC), TypeScript, Prisma 7 + PostgreSQL, Zod 4, TanStack Query 5 (SSR hydration) + TanStack Table 8 (shadcn Data Table), nuqs 2, shadcn/ui, pino, Vitest + happy-dom + Testing Library, Playwright.
 
@@ -34,7 +34,7 @@
 **Domain (pure, client-safe, Zod only)**
 - `src/domain/record.ts` — Create: `recordDtoSchema`, `recordsQuerySchema`, `recordsResponseSchema` + inferred types + unit-system constants.
 - `src/domain/bmi.ts` — Create: `computeBmi`.
-- `src/domain/units.ts` — Create: kg↔lb / cm↔in conversions + `formatWeight`/`formatHeight`.
+- `src/domain/units.ts` — Create: `formatWeight`/`formatHeight` — select the DB-provided value for the system + format (no conversion).
 - `src/domain/participant-repository.ts` — Create: `ParticipantRepository` interface + arg/result types (the contract).
 
 **Infrastructure**
@@ -121,9 +121,9 @@ model Participant {
   heightValue Decimal    @map("height_value") @db.Decimal(6, 2)
   heightUnit  HeightUnit @map("height_unit")
 
-  // NOTE: the generated STORED columns weight_kg / height_cm are deliberately
-  // NOT declared here yet. Task 2 creates them via raw SQL, then `prisma db pull`
-  // introspects them back with Prisma's own correct annotation — we do not guess it.
+  // NOTE: the generated STORED columns (weight_kg, weight_lb, height_cm, height_in)
+  // are deliberately NOT declared here yet. Task 2 creates them via raw SQL, then
+  // `prisma db pull` introspects them back with Prisma's own correct annotation.
 
   bmi Decimal @db.Decimal(4, 1)
 
@@ -174,33 +174,41 @@ git commit -m "feat(db): add participant + contact schema and base migration"
 
 ---
 
-## Task 2: Add `weight_kg` / `height_cm` as generated STORED columns (raw migration + introspect)
+## Task 2: Add `weight_kg`/`weight_lb`/`height_cm`/`height_in` as generated STORED columns (raw migration + introspect)
 
 **Files:**
-- Create: `prisma/migrations/<timestamp>_add_generated_canonical_columns/migration.sql`
+- Create: `prisma/migrations/<timestamp>_add_generated_unit_columns/migration.sql`
 - Modify: `prisma/schema.prisma` (via `prisma db pull` — introspects the correct read-only annotation)
 
 **Interfaces:**
-- Produces: `participant.weight_kg` and `participant.height_cm` as `GENERATED ALWAYS AS (...) STORED`, plus `Participant.weightKg`/`heightCm` fields that Prisma **omits from create/update inputs**. The exact schema annotation is whatever `db pull` writes — never a guess.
+- Produces: `participant.weight_kg`, `participant.weight_lb`, `participant.height_cm`, `participant.height_in` as `GENERATED ALWAYS AS (...) STORED`, plus the matching `Participant` fields that Prisma **omits from create/update inputs**. The exact schema annotation is whatever `db pull` writes — never a guess.
 
-**Why this shape:** Prisma has no first-class STORED-generated support and the correct field annotation (`@default(dbgenerated(...))` vs a comment vs `@ignore`) differs by version. Rather than hardcode a guess, we create the columns in raw SQL and let `prisma db pull` introspect the annotation Prisma itself considers drift-free. The verification steps are a **hard gate** — do not proceed to Task 7/8 until both checks pass.
+**Why all four (the design decision):** the display toggle is global (one unit system for the whole table) but rows are entered in mixed units. To show every row in the selected system with **no conversion on read** — the requirement — the DB stores each measurement in **both** systems as generated columns. The API returns all four, the client just picks the pair matching the toggle and formats it. All four are generated from the single source (`*_value` + `*_unit`), so there is still zero drift and one source of truth. (This is why there is no client-side unit conversion — see Task 3, formatting only.)
+
+**Why introspect, not hardcode:** Prisma has no first-class STORED-generated support and the correct field annotation (`@default(dbgenerated(...))` vs a comment vs `@ignore`) differs by version. Rather than guess, we create the columns in raw SQL and let `prisma db pull` introspect the annotation Prisma considers drift-free. The verification steps are a **hard gate** — do not proceed to Task 7/8 until both checks pass.
 
 - [ ] **Step 1: Create an empty migration to hold the raw DDL**
 
-Run: `npx prisma migrate dev --create-only --name add_generated_canonical_columns`
+Run: `npx prisma migrate dev --create-only --name add_generated_unit_columns`
 Expected: a new migration folder with an (essentially empty) `migration.sql` — the schema and DB are otherwise in sync.
 
 - [ ] **Step 2: Write the generated-column DDL into that migration**
 
-Replace the migration's `migration.sql` contents with (0.45359237 kg/lb, 2.54 cm/in — exact constants):
+Replace the migration's `migration.sql` contents with (0.45359237 kg/lb, 2.54 cm/in — exact constants; each system is a `CASE` on the entered unit, so no generated column references another):
 
 ```sql
 ALTER TABLE "participant"
   ADD COLUMN "weight_kg" numeric(9,4) GENERATED ALWAYS AS (
     CASE "weight_unit" WHEN 'kg' THEN "weight_value" ELSE "weight_value" * 0.45359237 END
   ) STORED,
+  ADD COLUMN "weight_lb" numeric(9,4) GENERATED ALWAYS AS (
+    CASE "weight_unit" WHEN 'lb' THEN "weight_value" ELSE "weight_value" / 0.45359237 END
+  ) STORED,
   ADD COLUMN "height_cm" numeric(6,2) GENERATED ALWAYS AS (
     CASE "height_unit" WHEN 'cm' THEN "height_value" ELSE "height_value" * 2.54 END
+  ) STORED,
+  ADD COLUMN "height_in" numeric(6,2) GENERATED ALWAYS AS (
+    CASE "height_unit" WHEN 'in' THEN "height_value" ELSE "height_value" / 2.54 END
   ) STORED;
 ```
 
@@ -212,34 +220,34 @@ Expected: applies the pending migration and reports success. If it asks to reset
 - [ ] **Step 4: Verify the columns are generated in the live DB, and the math is right**
 
 ```bash
-docker exec bmi_postgres psql -U bmi -d bmi -c "\d participant" | grep -E "weight_kg|height_cm"
+docker exec bmi_postgres psql -U bmi -d bmi -c "\d participant" | grep -E "weight_kg|weight_lb|height_cm|height_in"
 ```
-Expected: both show `generated always as (...) stored`. Then check the math with a throwaway row:
+Expected: all four show `generated always as (...) stored`. Then check the math with a throwaway row:
 ```bash
 docker exec bmi_postgres psql -U bmi -d bmi -c \
 "INSERT INTO participant (first_name,last_name,dob,sex,weight_value,weight_unit,height_value,height_unit,bmi,updated_at) \
- VALUES ('t','t','2000-01-01','male',150,'lb',70,'in',21.5,now()) RETURNING weight_kg, height_cm;"
+ VALUES ('t','t','2000-01-01','male',150,'lb',70,'in',21.5,now()) RETURNING weight_kg, weight_lb, height_cm, height_in;"
 docker exec bmi_postgres psql -U bmi -d bmi -c "DELETE FROM participant WHERE first_name='t';"
 ```
-Expected: `weight_kg ≈ 68.0389`, `height_cm = 177.80`.
+Expected: `weight_kg ≈ 68.0389`, `weight_lb = 150.0000`, `height_cm = 177.80`, `height_in = 70.00`.
 
 - [ ] **Step 5: Introspect the columns back into the schema**
 
 Run: `npx prisma db pull`
-Expected: `schema.prisma` now contains `weightKg`/`heightCm` fields on `Participant` with whatever annotation Prisma emits for generated columns. `db pull` may reorder fields or rewrite the relation/`@map` formatting — **diff it** (`git diff prisma/schema.prisma`) and restore any relation names, `@@map`, or index lines it dropped, keeping ONLY the two new generated-column fields as the intended change. Re-add `@map("weight_kg")`/`@map("height_cm")` if pull didn't.
+Expected: `schema.prisma` now contains `weightKg`/`weightLb`/`heightCm`/`heightIn` fields on `Participant` with whatever annotation Prisma emits for generated columns. `db pull` may reorder fields or rewrite the relation/`@map` formatting — **diff it** (`git diff prisma/schema.prisma`) and restore any relation names, `@@map`, or index lines it dropped, keeping ONLY the four new generated-column fields as the intended change. Re-add the `@map(...)` for each if pull didn't.
 
 - [ ] **Step 6: Regenerate the client and GATE on read-only inputs (do not proceed if this fails)**
 
 Run: `npx prisma generate`
 Then confirm Prisma treats the columns as read-only:
 ```bash
-grep -RnE "weightKg|heightCm" src/lib/generated/prisma/models.ts | head
+grep -RnE "weightKg|weightLb|heightCm|heightIn" src/lib/generated/prisma/models.ts | head
 ```
 **Hard gate — both must hold:**
 1. `npx prisma migrate dev` reports **no drift** ("Already in sync" / no new migration needed).
-2. The generated `ParticipantCreateInput`/`ParticipantUncheckedCreateInput` in `src/lib/generated/prisma/` **do not require** `weightKg`/`heightCm` (they must be absent or optional). Confirm by opening `models.ts` / the create-input type.
+2. The generated `ParticipantCreateInput`/`ParticipantUncheckedCreateInput` in `src/lib/generated/prisma/` **do not require** the four generated fields (they must be absent or optional). Confirm by opening `models.ts` / the create-input type.
 
-If either fails (e.g. the field is writable/required), the annotation is wrong: mark the field with `@ignore` for writes while keeping it readable, or adjust per the introspected form, then re-run this step. Only continue once inserts won't send these columns (Postgres rejects writes to a generated column).
+If either fails (e.g. a field is writable/required), the annotation is wrong: mark the field with `@ignore` for writes while keeping it readable, or adjust per the introspected form, then re-run this step. Only continue once inserts won't send these columns (Postgres rejects writes to a generated column).
 
 - [ ] **Step 7: Commit**
 
@@ -250,42 +258,39 @@ git commit -m "feat(db): weight_kg/height_cm generated STORED columns (introspec
 
 ---
 
-## Task 3: Domain — unit conversions & formatting (`src/domain/units.ts`)
+## Task 3: Domain — unit formatting (`src/domain/units.ts`)
 
 **Files:**
 - Create: `src/domain/units.ts`
 - Test: `src/domain/units.test.ts`
 
 **Interfaces:**
-- Consumes: `UnitSystem` type from Task 4 (`src/domain/record.ts`). **Write Task 4's constants first if implementing out of order** — or inline the `UnitSystem` import; it is defined there.
-- Produces: `kgToLb`, `lbToKg`, `cmToIn`, `inToCm` (each `(n: number) => number`); `formatWeight(kg: number, system: UnitSystem): string`; `formatHeight(cm: number, system: UnitSystem): string`.
+- Consumes: `UnitSystem` type from Task 4 (`src/domain/record.ts`). **Write Task 4's constants first if implementing out of order** — the `UnitSystem` type is defined there.
+- Produces: `formatWeight(weightKg: number, weightLb: number, system: UnitSystem): string`; `formatHeight(heightCm: number, heightIn: number, system: UnitSystem): string`.
+- **No conversion here.** Both unit representations already come from the DB (Task 2 generated columns). These helpers only **select** the value matching the system and **format** it (round + label). There are no kg↔lb / cm↔in math functions anywhere in the app.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // src/domain/units.test.ts
 import { describe, it, expect } from "vitest"
-import { kgToLb, lbToKg, cmToIn, inToCm, formatWeight, formatHeight } from "./units"
+import { formatWeight, formatHeight } from "./units"
 
-describe("unit conversions", () => {
-  it("round-trips kg↔lb", () => {
-    expect(lbToKg(150)).toBeCloseTo(68.0389, 4)
-    expect(kgToLb(68.0389)).toBeCloseTo(150, 3)
+describe("formatWeight", () => {
+  it("selects + formats the kg value in metric", () => {
+    expect(formatWeight(68.0389, 150, "metric")).toBe("68.0 kg")
   })
-  it("round-trips cm↔in", () => {
-    expect(inToCm(70)).toBeCloseTo(177.8, 4)
-    expect(cmToIn(177.8)).toBeCloseTo(70, 4)
+  it("selects + formats the lb value in imperial", () => {
+    expect(formatWeight(68.0389, 150, "imperial")).toBe("150.0 lb")
   })
 })
 
-describe("formatting", () => {
-  it("formats weight per system", () => {
-    expect(formatWeight(68.0389, "metric")).toBe("68.0 kg")
-    expect(formatWeight(68.0389, "imperial")).toBe("150.0 lb")
+describe("formatHeight", () => {
+  it("selects + formats the cm value in metric", () => {
+    expect(formatHeight(177.8, 70, "metric")).toBe("178 cm")
   })
-  it("formats height per system", () => {
-    expect(formatHeight(177.8, "metric")).toBe("178 cm")
-    expect(formatHeight(177.8, "imperial")).toBe("70 in")
+  it("selects + formats the in value in imperial", () => {
+    expect(formatHeight(177.8, 70, "imperial")).toBe("70 in")
   })
 })
 ```
@@ -301,26 +306,19 @@ Expected: FAIL — module `./units` not found.
 // src/domain/units.ts
 import type { UnitSystem } from "./record"
 
-const KG_PER_LB = 0.45359237
-const CM_PER_IN = 2.54
-
-export const lbToKg = (lb: number): number => lb * KG_PER_LB
-export const kgToLb = (kg: number): number => kg / KG_PER_LB
-export const inToCm = (inch: number): number => inch * CM_PER_IN
-export const cmToIn = (cm: number): number => cm / CM_PER_IN
-
 const round1 = (n: number): number => Math.round(n * 10) / 10
 
-export function formatWeight(kg: number, system: UnitSystem): string {
+// Both values come pre-computed from the DB; pick the one for `system` and format it.
+export function formatWeight(weightKg: number, weightLb: number, system: UnitSystem): string {
   return system === "metric"
-    ? `${round1(kg).toFixed(1)} kg`
-    : `${round1(kgToLb(kg)).toFixed(1)} lb`
+    ? `${round1(weightKg).toFixed(1)} kg`
+    : `${round1(weightLb).toFixed(1)} lb`
 }
 
-export function formatHeight(cm: number, system: UnitSystem): string {
+export function formatHeight(heightCm: number, heightIn: number, system: UnitSystem): string {
   return system === "metric"
-    ? `${Math.round(cm)} cm`
-    : `${Math.round(cmToIn(cm))} in`
+    ? `${Math.round(heightCm)} cm`
+    : `${Math.round(heightIn)} in`
 }
 ```
 
@@ -333,7 +331,7 @@ Expected: PASS (4 tests). If it errors on the `UnitSystem` import, implement Tas
 
 ```bash
 git add src/domain/units.ts src/domain/units.test.ts
-git commit -m "feat(domain): unit conversion and formatting helpers"
+git commit -m "feat(domain): unit formatting helpers (select + format, no conversion)"
 ```
 
 ---
@@ -370,7 +368,8 @@ describe("recordsQuerySchema", () => {
 describe("recordDtoSchema", () => {
   const valid = {
     id: 1, firstName: "Ada", lastName: "Lovelace", dob: "1815-12-10",
-    weightKg: 68.04, heightCm: 177.8, bmi: 21.5, createdAt: "2026-07-16T00:00:00.000Z",
+    weightKg: 68.04, weightLb: 150, heightCm: 177.8, heightIn: 70,
+    bmi: 21.5, createdAt: "2026-07-16T00:00:00.000Z",
   }
   it("accepts a well-formed row", () => {
     expect(recordDtoSchema.parse(valid)).toEqual(valid)
@@ -399,14 +398,18 @@ export const UNIT_SYSTEMS = ["metric", "imperial"] as const
 export type UnitSystem = (typeof UNIT_SYSTEMS)[number]
 
 /** One row of GET /api/records. Participant fields only — no contact PII.
- *  Carries canonical numbers so the client renders either unit system with no refetch. */
+ *  Carries both unit systems (from DB generated columns) so the client renders either
+ *  system by selecting a column — no refetch, no read-time conversion. */
 export const recordDtoSchema = z.object({
   id: z.number().int().positive(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   dob: z.string(), // ISO calendar date, yyyy-mm-dd
+  // Both unit systems come straight from the DB generated columns — no read-time conversion.
   weightKg: z.number().positive(),
+  weightLb: z.number().positive(),
   heightCm: z.number().positive(),
+  heightIn: z.number().positive(),
   bmi: z.number().positive(),
   createdAt: z.string(), // ISO datetime
 })
@@ -626,7 +629,9 @@ describe.skipIf(!hasDb)("participantRepository.list (integration)", () => {
     const row = data.find((r) => r.id === createdId)!
     expect(typeof row.weightKg).toBe("number")
     expect(row.weightKg).toBeCloseTo(68.0389, 3) // 150 lb -> kg, generated by Postgres
+    expect(row.weightLb).toBeCloseTo(150, 3)     // entered as lb, stored verbatim
     expect(row.heightCm).toBeCloseTo(177.8, 2)   // 70 in -> cm
+    expect(row.heightIn).toBeCloseTo(70, 2)      // entered as in, stored verbatim
     expect(row.dob).toBe("1990-01-01")
     // No PII leaks into the row.
     expect(row).not.toHaveProperty("phone")
@@ -658,19 +663,25 @@ const listSelect = {
   lastName: true,
   dob: true,
   weightKg: true,
+  weightLb: true,
   heightCm: true,
+  heightIn: true,
   bmi: true,
   createdAt: true,
 } as const
+
+type Decimalish = { toNumber(): number }
 
 type Row = {
   id: number
   firstName: string
   lastName: string
   dob: Date
-  weightKg: { toNumber(): number }
-  heightCm: { toNumber(): number }
-  bmi: { toNumber(): number }
+  weightKg: Decimalish
+  weightLb: Decimalish
+  heightCm: Decimalish
+  heightIn: Decimalish
+  bmi: Decimalish
   createdAt: Date
 }
 
@@ -681,7 +692,9 @@ function toDto(row: Row): RecordDto {
     lastName: row.lastName,
     dob: row.dob.toISOString().slice(0, 10),
     weightKg: row.weightKg.toNumber(),
+    weightLb: row.weightLb.toNumber(),
     heightCm: row.heightCm.toNumber(),
+    heightIn: row.heightIn.toNumber(),
     bmi: row.bmi.toNumber(),
     createdAt: row.createdAt.toISOString(),
   }
@@ -1377,12 +1390,12 @@ export function recordColumns(system: UnitSystem): ColumnDef<RecordDto>[] {
     {
       id: "height",
       header: "Height",
-      cell: ({ row }) => formatHeight(row.original.heightCm, system),
+      cell: ({ row }) => formatHeight(row.original.heightCm, row.original.heightIn, system),
     },
     {
       id: "weight",
       header: "Weight",
-      cell: ({ row }) => formatWeight(row.original.weightKg, system),
+      cell: ({ row }) => formatWeight(row.original.weightKg, row.original.weightLb, system),
     },
     { accessorKey: "bmi", header: "BMI" },
     {
@@ -1409,7 +1422,8 @@ vi.mock("nuqs", () => ({
 
 const record = {
   id: 1, firstName: "Ada", lastName: "Lovelace", dob: "1815-12-10",
-  weightKg: 68.0389, heightCm: 177.8, bmi: 21.5, createdAt: "2026-07-16T00:00:00.000Z",
+  weightKg: 68.0389, weightLb: 150, heightCm: 177.8, heightIn: 70,
+  bmi: 21.5, createdAt: "2026-07-16T00:00:00.000Z",
 }
 
 vi.mock("@/hooks/use-records", () => ({
@@ -1889,7 +1903,7 @@ Expected: a PR URL. Hand it to the human. Do **not** merge.
 - CDC formulas: Task 5. ✓
 - Two-table `participant 1—1 contact` schema, exact column types, generated STORED columns, indexes: Tasks 1–2. ✓
 - Numeric types (Decimal in DB, number at boundary, converted once in the mapper): Task 7. ✓
-- Unit handling: canonical columns + paired Metric/Imperial toggle + cookie-backed SSR + client-only re-render (no refetch): Tasks 3, 13, 14 (test proves no refetch), 16. ✓
+- Unit handling: **both** unit systems stored as DB generated columns (no read-time conversion — the stated requirement) + paired Metric/Imperial toggle + cookie-backed SSR + client-only re-render that only *picks + formats* (no refetch, no math): Tasks 2 (4 generated columns), 3 (format-only), 13, 14 (test proves the toggle re-renders from the same row), 16. ✓
 - Home page/data flow: route `/`, prefetch + `dehydrate`/`HydrationBoundary` (no `initial` prop), table columns exactly Full name/DOB/Height/Weight/BMI/Date created, offset pagination 20/page via nuqs in the URL, single FAB (opens nothing), minimal footer: Tasks 14, 16. ✓
 - Caching (page cacheable, only the table dynamic): Cache Components — static shell (frame + footer + FAB) prerendered; the header + table stream as one dynamic `<Suspense>` island reading the cookie + `searchParams`: Task 16. The header rides with the island because it hosts the per-user unit toggle (documented refinement of the spec's "header in the static shell"). ✓
 - API `GET /api/records?page=&pageSize=` → `{ data, total }`, participant rows only (no PII), Zod-validated, HTTP-only handler: Tasks 4, 11 (test asserts no phone/email in DTO: Task 7). ✓
@@ -1900,4 +1914,4 @@ Expected: a PR URL. Hand it to the human. Do **not** merge.
 
 **Placeholder scan:** no TBD/TODO; every code step has complete code. The one deliberately-not-hardcoded value — the Prisma generated-column field annotation — is resolved empirically via `prisma db pull` behind a hard verification gate (Task 2 Steps 5–6), not guessed.
 
-**Type consistency:** `RecordDto`, `RecordsQuery`, `RecordsResponse`, `ParticipantRepository.list`, `listRecords(query, repo?)`, `recordsQueryKey(page, pageSize)`, `fetchRecords(page, pageSize)`, `useRecords(page, pageSize)`, `formatWeight(kg, system)`, `formatHeight(cm, system)`, `computeBmi(BmiInput)`, `getUnitSystem()`, `UnitSystemProvider({ initialSystem })`, `useUnitSystem()` — names/signatures are consistent across every task that references them.
+**Type consistency:** `RecordDto`, `RecordsQuery`, `RecordsResponse`, `ParticipantRepository.list`, `listRecords(query, repo?)`, `recordsQueryKey(page, pageSize)`, `fetchRecords(page, pageSize)`, `useRecords(page, pageSize)`, `formatWeight(weightKg, weightLb, system)`, `formatHeight(heightCm, heightIn, system)`, `computeBmi(BmiInput)`, `getUnitSystem()`, `UnitSystemProvider({ initialSystem })`, `useUnitSystem()` — names/signatures are consistent across every task that references them.

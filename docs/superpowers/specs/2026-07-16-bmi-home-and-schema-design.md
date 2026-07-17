@@ -22,8 +22,11 @@ surface is shaped so they slot in later without rework).
 > **Mechanical, lossless transforms → the database. Business logic → the domain layer.**
 
 - **Unit conversion** (kg↔lb, cm↔in) is a fixed physical constant with no business rules,
-  so Postgres owns the canonical columns as **generated STORED columns** — always
-  consistent with the source, indexable, never written by the app.
+  so Postgres owns it: each measurement is stored in **both** systems as **generated STORED
+  columns** (`weight_kg`+`weight_lb`, `height_cm`+`height_in`) — always consistent with the
+  source, never written by the app. The client does **no conversion on read**: it selects
+  the column matching the chosen unit system and formats it. All representations are
+  generated from the single as-entered source, so there is still one source of truth.
 - **BMI** is business logic (plus category classification), so it lives in a **pure,
   unit-tested `computeBmi` in the domain layer** and its result is stored.
 
@@ -59,8 +62,10 @@ from the health metrics.
 | `weight_unit`   | enum(`kg`,`lb`) NOT NULL | |
 | `height_value`  | numeric(6,2) NOT NULL | Exactly as the user entered it. |
 | `height_unit`   | enum(`cm`,`in`) NOT NULL | |
-| `weight_kg`     | numeric(9,4) **GENERATED ALWAYS AS … STORED** | DB-derived canonical weight. |
-| `height_cm`     | numeric(6,2) **GENERATED ALWAYS AS … STORED** | DB-derived canonical height. |
+| `weight_kg`     | numeric(9,4) **GENERATED ALWAYS AS … STORED** | DB-derived weight in kg. |
+| `weight_lb`     | numeric(9,4) **GENERATED ALWAYS AS … STORED** | DB-derived weight in lb. |
+| `height_cm`     | numeric(6,2) **GENERATED ALWAYS AS … STORED** | DB-derived height in cm. |
+| `height_in`     | numeric(6,2) **GENERATED ALWAYS AS … STORED** | DB-derived height in in. |
 | `bmi`           | numeric(4,1) NOT NULL | Domain `computeBmi()`, written at insert. |
 | `created_at`    | timestamptz NOT NULL DEFAULT now() | |
 | `updated_at`    | timestamptz NOT NULL | |
@@ -72,14 +77,21 @@ Generation expressions:
 weight_kg GENERATED ALWAYS AS (
   CASE weight_unit WHEN 'kg' THEN weight_value ELSE weight_value * 0.45359237 END
 ) STORED
+weight_lb GENERATED ALWAYS AS (
+  CASE weight_unit WHEN 'lb' THEN weight_value ELSE weight_value / 0.45359237 END
+) STORED
 height_cm GENERATED ALWAYS AS (
   CASE height_unit WHEN 'cm' THEN height_value ELSE height_value * 2.54 END
 ) STORED
+height_in GENERATED ALWAYS AS (
+  CASE height_unit WHEN 'in' THEN height_value ELSE height_value / 2.54 END
+) STORED
 ```
 
-Prisma 7 does not manage generated columns in its schema DSL, so these two columns are
-added via a hand-authored migration and their Prisma fields are read-only (excluded from
-create/update inputs).
+Each expression reads only the base `*_value`/`*_unit` columns (never another generated
+column, which Postgres forbids). Prisma 7 does not manage generated columns in its schema
+DSL, so these columns are created via a hand-authored migration and introspected back
+(`prisma db pull`); their Prisma fields are read-only (excluded from create/update inputs).
 
 ### `contact`
 
@@ -113,8 +125,9 @@ Room to add `address` later without touching `participant`.
 
 ## Unit handling & display
 
-- Each measurement is stored **as entered** (`value` + `unit`) plus the DB-generated
-  canonical column.
+- Each measurement is stored **as entered** (`value` + `unit`) plus **both** DB-generated
+  columns (kg + lb, cm + in). Display picks the column for the chosen system — no read-time
+  conversion.
 - The home page header has a **paired Metric ↔ Imperial system toggle** (Metric = kg + cm,
   Imperial = lb + in) — one control, not two independent unit switches.
 - Toggle state lives in a **cookie**: the server reads it during SSR so the first paint is
@@ -168,11 +181,14 @@ visibly exercised (3 pages at 20/page) with a spread of BMI values.
 
 ## Alternatives considered (for the interview explain-your-choices bar)
 
-- **Store both kg and lbs as plain columns** — rejected: two sources of truth for one fact,
-  drift risk, doubled write logic. The DB-generated canonical column gives the same
-  physical presence without drift.
-- **Store canonical only, convert on read for everything** — viable, but loses the exact
-  original the user typed. We keep the as-entered value alongside canonical.
+- **Store both units as _plain_ columns** — rejected: two independently-writable sources of
+  truth for one fact, drift risk, doubled write logic. **Chosen instead:** store both units
+  as **generated STORED** columns — same "query/display either unit with no conversion"
+  benefit, but all derived from the single as-entered source, so drift is impossible.
+- **Store one unit only + convert on read** — rejected: the requirement is **no conversion
+  on read** (avoids per-row math at scale and keeps the client dumb). Storing both generated
+  columns removes read-time conversion entirely; we also keep the as-entered value for
+  fidelity.
 - **BMI as a generated column** — rejected: Postgres forbids a generated column referencing
   other generated columns, so it would re-inline the unit conversions (duplicated
   constants), and it would move business logic out of the tested domain layer.
