@@ -36,7 +36,7 @@ This is a full-stack BMI app (capture demographic + health data → compute BMI 
 | Client↔server | Route Handlers (`src/app/api/**`), REST | Server Actions for app data; tRPC; GraphQL |
 | App logic | use-case async functions (`src/services/**`) | logic in route handlers or components |
 | Domain | pure functions (`src/domain/**`) | side effects / IO in domain code |
-| Data access | Repository + Prisma (`src/infrastructure/**`) | Prisma calls outside the repository; raw string SQL |
+| Data access | Prisma via plain functions in `src/infrastructure/**` | Prisma calls outside `src/infrastructure/`; raw string SQL |
 | Database | PostgreSQL | SQLite/MySQL/Mongo |
 | Data fetching | TanStack Query (React Query), SSR-hydrated | `fetch` in components w/o React Query; SWR |
 | HTTP transport (inside `queryFn`/`mutationFn`) | native `fetch` | axios/ky/superagent |
@@ -86,8 +86,8 @@ prisma/             # schema and migrations — stays at repo root
 Dependency direction — never collapse a seam or reach around one:
 - **Flow:** `app → services → domain ← infrastructure`. `domain/` imports nothing.
 - **Use cases live in `services/`**, one async function per operation — not a "service" class. Take already-validated input, return domain results. Import the repository directly; no DI container (inject only if a test genuinely needs it). A use case may be thin (a near pass-through) — that's fine; it keeps route handlers HTTP-only and the seam uniform.
-- **Domain is pure** — business rules + types, zero deps, unit-tested directly. Repository **interfaces** (the contracts) live here.
-- **Infrastructure is the only code that touches the DB or external systems** — the Prisma client and the repository **implementation**. No Prisma calls outside `src/infrastructure/`.
+- **Domain is pure** — business rules + types, zero deps (Zod is the one sanctioned exception, for validators), unit-tested directly.
+- **Infrastructure is the only code that touches the DB or external systems.** Data access is a **module of plain async functions** (e.g. `listParticipants(query)`) — Prisma already returns plain objects, so a repository class/interface adds ceremony without benefit. Add a domain-side interface only when a second implementation or DI genuinely earns it. No Prisma calls outside `src/infrastructure/`.
 
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.

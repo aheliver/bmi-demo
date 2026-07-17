@@ -35,11 +35,10 @@
 - `src/domain/record.ts` — Create: `recordDtoSchema`, `recordsQuerySchema`, `recordsResponseSchema` + inferred types + unit-system constants.
 - `src/domain/bmi.ts` — Create: `computeBmi`.
 - `src/domain/units.ts` — Create: `formatWeight`/`formatHeight` — select the DB-provided value for the system + format (no conversion).
-- `src/domain/participant-repository.ts` — Create: `ParticipantRepository` interface + arg/result types (the contract).
 
-**Infrastructure**
+**Infrastructure** (data access = plain functions, not a repository class/interface — the Next+Prisma standard)
 - `src/infrastructure/prisma.ts` — Create: `PrismaClient` singleton.
-- `src/infrastructure/participant-repository.ts` — Create: Prisma impl; maps rows → `RecordDto`.
+- `src/infrastructure/participant-repo.ts` — Create: `listParticipants()` — Prisma query + maps rows → `RecordDto`.
 
 **Services**
 - `src/services/list-records.ts` — Create: `listRecords` use case.
@@ -507,63 +506,15 @@ git commit -m "feat(domain): computeBmi with CDC per-system formulas"
 
 ---
 
-## Task 6: Domain — repository interface (`src/domain/participant-repository.ts`)
-
-**Files:**
-- Create: `src/domain/participant-repository.ts`
-
-**Interfaces:**
-- Consumes: `RecordDto` from `src/domain/record.ts`.
-- Produces: `ListParticipantsArgs` (`{ page: number; pageSize: number }`), `ListParticipantsResult` (`{ data: RecordDto[]; total: number }`), `ParticipantRepository` (`{ list(args: ListParticipantsArgs): Promise<ListParticipantsResult> }`).
-
-This is a types-only contract (no runtime logic → no standalone unit test; the compiler and the repo/service tests cover it). Fold its verification into the typecheck at Step 3.
-
-- [ ] **Step 1: Write the interface**
-
-```ts
-// src/domain/participant-repository.ts
-import type { RecordDto } from "./record"
-
-export interface ListParticipantsArgs {
-  page: number
-  pageSize: number
-}
-
-export interface ListParticipantsResult {
-  data: RecordDto[]
-  total: number
-}
-
-/** Contract implemented in infrastructure. Domain owns the interface; nothing here touches IO. */
-export interface ParticipantRepository {
-  list(args: ListParticipantsArgs): Promise<ListParticipantsResult>
-}
-```
-
-- [ ] **Step 2: Typecheck**
-
-Run: `npm run typecheck`
-Expected: PASS (no errors).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add src/domain/participant-repository.ts
-git commit -m "feat(domain): ParticipantRepository interface"
-```
-
----
-
-## Task 7: Infrastructure — Prisma client singleton + repository implementation
+## Task 6: Infrastructure — Prisma client singleton (`src/infrastructure/prisma.ts`)
 
 **Files:**
 - Create: `src/infrastructure/prisma.ts`
-- Create: `src/infrastructure/participant-repository.ts`
-- Test: `src/infrastructure/participant-repository.test.ts` (integration — self-skips without `DATABASE_URL`)
 
 **Interfaces:**
-- Consumes: `ParticipantRepository`, `ListParticipantsArgs`, `ListParticipantsResult` (Task 6); `RecordDto` (Task 4).
-- Produces: `prisma` (a `PrismaClient` singleton); `participantRepository: ParticipantRepository`. The mapper converts `Decimal → number`, `Date → ISO string`, and returns only DTO fields (no contact join, no PII). List filters `deletedAt: null`, orders `createdAt` desc, offset-paginates.
+- Produces: `prisma` — a `PrismaClient` singleton (reused across dev HMR so connections don't leak). Consumed by the repository function (Task 7).
+
+No standalone test — a bare client instantiation has no logic of its own; it's exercised by Task 7's integration test. Verify with typecheck.
 
 - [ ] **Step 1: Write the Prisma singleton**
 
@@ -580,17 +531,42 @@ if (process.env.NODE_ENV !== "production") {
 }
 ```
 
-- [ ] **Step 2: Write the failing integration test**
+- [ ] **Step 2: Typecheck**
+
+Run: `npm run typecheck`
+Expected: PASS (no errors).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/infrastructure/prisma.ts
+git commit -m "feat(infra): prisma client singleton"
+```
+
+---
+
+## Task 7: Infrastructure — participant repository function (`src/infrastructure/participant-repo.ts`)
+
+**Files:**
+- Create: `src/infrastructure/participant-repo.ts`
+- Test: `src/infrastructure/participant-repo.test.ts` (integration — self-skips without `DATABASE_URL`)
+
+**Interfaces:**
+- Consumes: `prisma` (Task 6); `RecordsQuery`, `RecordsResponse`, `RecordDto` (Task 4).
+- Produces: `listParticipants(query: RecordsQuery): Promise<RecordsResponse>` — a **plain async function** (no repository class or interface; data access is a module of functions, the Next+Prisma standard). `toDto` maps `Decimal → number`, `Date → ISO string`, and returns only DTO fields (no contact join, no PII). Query filters `deletedAt: null`, orders `createdAt` desc, offset-paginates.
+- **Why the mapper exists:** Prisma returns `Decimal` for `numeric` and `Date` for dates, and `Decimal.toJSON()` serializes as a *string* — so returning rows directly would break the `number` DTO contract. The mapper is the required cost of storing exact `numeric`.
+
+- [ ] **Step 1: Write the failing integration test**
 
 ```ts
-// src/infrastructure/participant-repository.test.ts
+// src/infrastructure/participant-repo.test.ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { prisma } from "./prisma"
-import { participantRepository } from "./participant-repository"
+import { listParticipants } from "./participant-repo"
 
 const hasDb = Boolean(process.env.DATABASE_URL)
 
-describe.skipIf(!hasDb)("participantRepository.list (integration)", () => {
+describe.skipIf(!hasDb)("listParticipants (integration)", () => {
   let createdId: number
 
   beforeAll(async () => {
@@ -610,8 +586,8 @@ describe.skipIf(!hasDb)("participantRepository.list (integration)", () => {
     await prisma.$disconnect()
   })
 
-  it("maps generated canonical columns to numbers in the DTO", async () => {
-    const { data, total } = await participantRepository.list({ page: 1, pageSize: 100 })
+  it("maps generated columns to numbers in the DTO and leaks no PII", async () => {
+    const { data, total } = await listParticipants({ page: 1, pageSize: 100 })
     expect(total).toBeGreaterThan(0)
     const row = data.find((r) => r.id === createdId)!
     expect(typeof row.weightKg).toBe("number")
@@ -620,29 +596,23 @@ describe.skipIf(!hasDb)("participantRepository.list (integration)", () => {
     expect(row.heightCm).toBeCloseTo(177.8, 2)   // 70 in -> cm
     expect(row.heightIn).toBeCloseTo(70, 2)      // entered as in, stored verbatim
     expect(row.dob).toBe("1990-01-01")
-    // No PII leaks into the row.
     expect(row).not.toHaveProperty("phone")
     expect(row).not.toHaveProperty("email")
   })
 })
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run db:up && npx vitest run src/infrastructure/participant-repository.test.ts`
-Expected: FAIL — module `./participant-repository` not found. (If `DATABASE_URL` is unset the suite skips — export it or ensure `.env` is loaded; Vitest reads `.env` via `dotenv` only if configured, so run with `DATABASE_URL=postgresql://bmi:bmi@localhost:5432/bmi?schema=public npx vitest run ...` if it skips.)
+Run: `npm run db:up && npx vitest run src/infrastructure/participant-repo.test.ts`
+Expected: FAIL — module `./participant-repo` not found. (If `DATABASE_URL` is unset the suite skips — export it or ensure `.env` is loaded; Vitest reads `.env` via `dotenv` only if configured, so run with `DATABASE_URL=postgresql://bmi:bmi@localhost:5432/bmi?schema=public npx vitest run ...` if it skips.)
 
-- [ ] **Step 4: Write the repository implementation**
+- [ ] **Step 3: Write the repository function**
 
 ```ts
-// src/infrastructure/participant-repository.ts
+// src/infrastructure/participant-repo.ts
 import { prisma } from "./prisma"
-import type {
-  ParticipantRepository,
-  ListParticipantsArgs,
-  ListParticipantsResult,
-} from "@/domain/participant-repository"
-import type { RecordDto } from "@/domain/record"
+import type { RecordsQuery, RecordsResponse, RecordDto } from "@/domain/record"
 
 const listSelect = {
   id: true,
@@ -687,34 +657,32 @@ function toDto(row: Row): RecordDto {
   }
 }
 
-export const participantRepository: ParticipantRepository = {
-  async list({ page, pageSize }: ListParticipantsArgs): Promise<ListParticipantsResult> {
-    const where = { deletedAt: null }
-    const [rows, total] = await Promise.all([
-      prisma.participant.findMany({
-        where,
-        select: listSelect,
-        orderBy: { createdAt: "desc" },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      prisma.participant.count({ where }),
-    ])
-    return { data: rows.map(toDto), total }
-  },
+export async function listParticipants({ page, pageSize }: RecordsQuery): Promise<RecordsResponse> {
+  const where = { deletedAt: null }
+  const [rows, total] = await Promise.all([
+    prisma.participant.findMany({
+      where,
+      select: listSelect,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.participant.count({ where }),
+  ])
+  return { data: rows.map(toDto), total }
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes**
 
-Run: `npx vitest run src/infrastructure/participant-repository.test.ts`
+Run: `npx vitest run src/infrastructure/participant-repo.test.ts`
 Expected: PASS (1 test).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/infrastructure/prisma.ts src/infrastructure/participant-repository.ts src/infrastructure/participant-repository.test.ts
-git commit -m "feat(infra): prisma singleton + participant repository with DTO mapper"
+git add src/infrastructure/participant-repo.ts src/infrastructure/participant-repo.test.ts
+git commit -m "feat(infra): listParticipants repository function with DTO mapper"
 ```
 
 ---
@@ -838,17 +806,15 @@ git commit -m "feat(db): seed 60 mock participants with domain-computed BMI"
 - Produces: `listRecords(query: RecordsQuery): Promise<RecordsResponse>`. Thin pass-through — keeps the route handler HTTP-only and the seam uniform (per AGENTS.md, a near pass-through use case is fine).
 - **No test:** the use case has no logic of its own (it forwards the query and returns the result). A mock-the-repo-and-assert-forwarding test would be a tautology, so none is written (per AGENTS.md "no useless tests"). It is exercised transitively by the route-handler and repository tests. Add a test here only if this function grows real logic.
 
-> The exact repository import/call below assumes Task 7's current shape (`participantRepository.list`). If the repository is refactored to plain functions (see the open decision), this becomes `listParticipants(query)` — a one-line change.
-
 - [ ] **Step 1: Write the implementation**
 
 ```ts
 // src/services/list-records.ts
 import type { RecordsQuery, RecordsResponse } from "@/domain/record"
-import { participantRepository } from "@/infrastructure/participant-repository"
+import { listParticipants } from "@/infrastructure/participant-repo"
 
 export async function listRecords(query: RecordsQuery): Promise<RecordsResponse> {
-  return participantRepository.list(query)
+  return listParticipants(query)
 }
 ```
 
@@ -1848,4 +1814,4 @@ Expected: a PR URL. Hand it to the human. Do **not** merge.
 
 **Placeholder scan:** no TBD/TODO; every code step has complete code. The one deliberately-not-hardcoded value — the Prisma generated-column field annotation — is resolved empirically via `prisma db pull` behind a hard verification gate (Task 2 Steps 5–6), not guessed.
 
-**Type consistency:** `RecordDto`, `RecordsQuery`, `RecordsResponse`, `ParticipantRepository.list`, `listRecords(query)`, `recordsQueryKey(page, pageSize)`, `fetchRecords(page, pageSize)`, `useRecords(page, pageSize)`, `formatWeight(weightKg, weightLb, system)`, `formatHeight(heightCm, heightIn, system)`, `computeBmi(BmiInput)`, `getUnitSystem()`, `UnitSystemProvider({ initialSystem })`, `useUnitSystem()` — names/signatures are consistent across every task that references them.
+**Type consistency:** `RecordDto`, `RecordsQuery`, `RecordsResponse`, `listParticipants(query)`, `listRecords(query)`, `recordsQueryKey(page, pageSize)`, `fetchRecords(page, pageSize)`, `useRecords(page, pageSize)`, `formatWeight(weightKg, weightLb, system)`, `formatHeight(heightCm, heightIn, system)`, `computeBmi(BmiInput)`, `getUnitSystem()`, `UnitSystemProvider({ initialSystem })`, `useUnitSystem()` — names/signatures are consistent across every task that references them.
