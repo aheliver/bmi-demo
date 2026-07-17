@@ -75,10 +75,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
                 <TableRow key={row.id}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell ?? cell.column.columnDef.header,
-                        cell.getContext(),
-                      )}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
