@@ -13,7 +13,12 @@ export default defineConfig({
     exclude: ["node_modules", ".next", "e2e"],
   },
   resolve: {
-    // Mirror the tsconfig "@/*" -> project root alias.
-    alias: { "@": resolve(import.meta.dirname, "src") },
+    alias: {
+      // Mirror the tsconfig "@/*" -> project root alias.
+      "@": resolve(import.meta.dirname, "src"),
+      // `server-only` throws when imported without React's "react-server" condition
+      // (which Vitest doesn't set). Stub it so server modules are importable in tests.
+      "server-only": resolve(import.meta.dirname, "test/server-only-stub.ts"),
+    },
   },
 })
