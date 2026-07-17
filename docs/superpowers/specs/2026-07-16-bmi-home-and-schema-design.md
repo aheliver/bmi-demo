@@ -168,9 +168,16 @@ visibly exercised (3 pages at 20/page) with a spread of BMI values.
 
 ## Libraries to add
 
+- **`@prisma/adapter-pg`** (+ its bundled `pg`) — **required** by Prisma 7's `prisma-client`
+  generator, which constructs the runtime client with a driver adapter
+  (`new PrismaClient({ adapter: new PrismaPg(...) })`). Not discretionary — it is intrinsic
+  to running Prisma 7 + PostgreSQL. Added during implementation.
+- **`tsx`** (dev) — runs the TypeScript Prisma seed (`prisma db seed`). Node's
+  `--experimental-strip-types` can't resolve the generated client's extensionless imports.
 - **`libphonenumber-js`** — normalize user-entered phone input to E.164 before storage
   (the industry-standard normalizer). Zod additionally validates the E.164 shape
-  (`^\+[1-9]\d{1,14}$`) on both client and server.
+  (`^\+[1-9]\d{1,14}$`) on both client and server. **Deferred** to the add-record feature
+  (this home-page task stores no user-entered phone input).
 
 ## Out of scope (this design)
 
