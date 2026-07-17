@@ -64,7 +64,7 @@ If a rule below and this table ever disagree, the table wins — fix the prose.
 - **Validate on BOTH sides from the SAME schema:** client via `@hookform/resolvers/zod` (UX), and re-parse server-side in the Route Handler (trust boundary). Client validation is UX; **server validation is security.** Never trust client input.
 
 ## Communication layer — Route Handlers only
-- **All client↔server data goes through Route Handlers (REST): `src/app/api/**/route.ts`.** This is the *only* communication style. **This app needs only `GET /api/records` (list, filtered/paginated) and `POST /api/records` (create).** Do not build `PUT`/`DELETE` or other endpoints unless a task explicitly requires them.
+- **All client↔server data goes through Route Handlers (REST): `src/app/api/**/route.ts`.** This is the *only* communication style. Each feature adds the endpoints and HTTP methods (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`) it actually needs — no more, no fewer. The concrete endpoint list for a feature belongs in that feature's doc under `docs/`, not here.
 - **Do NOT use Server Actions for application data.** (They aren't a public API — can't serve mobile — and don't work with React Query `useQuery`.) One style, top to bottom, keeps the API `curl`-able and external-client-ready.
 - Route handlers do **HTTP only**: parse + Zod-validate input, call a use case, map results/errors to status codes. No business logic, no SQL in the handler.
 
@@ -91,15 +91,8 @@ Dependency direction — never collapse a seam or reach around one:
 
 ## Data layer
 - **Prisma + PostgreSQL.** All queries parameterized (Prisma default) — never string-interpolate SQL. Filter params are Zod-coerced before reaching the repository.
-- **Data fetching: TanStack Query (React Query).** Reads via `useQuery` → GET Route Handler; writes via `useMutation` → POST Route Handler, then `invalidateQueries`. SSR-prefetch + hydrate per the Next 16 rule above.
+- **Data fetching: TanStack Query (React Query).** Reads via `useQuery` → GET Route Handler; writes via `useMutation` → the appropriate write Route Handler (`POST`/`PUT`/`PATCH`/`DELETE`), then `invalidateQueries`. SSR-prefetch + hydrate per the Next 16 rule above.
 - **URL state: nuqs.** Filter/sort/page state lives in the URL (typed), and is the React Query key. Shareable, bookmarkable, back-button-safe.
-
-## Error handling (graded by the rubric)
-- Route handlers return typed errors with correct status codes: **400** for Zod validation failures (return flattened issues), **500** for unexpected. A single error-mapping helper at the communication layer turns thrown domain/repo errors into HTTP responses so lower layers stay HTTP-agnostic.
-- UI surfaces React Query `error`/`isError`; mutations show pending/error state.
-
-## Out of scope (YAGNI — do not build)
-No auth, no separate Node backend, no Server Actions for data, no websockets/real-time, no background jobs, no cursor/infinite pagination. See the spec for why.
 
 # Testing — non-negotiable
 
@@ -107,10 +100,10 @@ Tests ship in the same change as the code. "I'll add tests later" means never.
 
 **Stack:** Vitest + happy-dom + @testing-library/react + @testing-library/user-event. `jest-dom` matchers loaded globally via `vitest.setup.ts`.
 
-**What to test here (right-sized for this app):**
-- **Domain** — `computeBmi`, `classifyBmi`: the highest-value tests, pure and fast. Cover boundary values (category thresholds).
-- **Validation** — the Zod schema: valid input passes, invalid (negative/zero/NaN height/weight, out-of-range) is rejected.
-- **Repository / use cases** — filtering + pagination behavior against a test DB or a faked repository.
+**What to test — right-size to the layer, not to any one feature:**
+- **Domain** — pure business-rule functions: the highest-value tests, pure and fast. Cover boundary values.
+- **Validation** — the Zod schema for each shape: valid input passes, invalid (out-of-range, wrong type, missing) is rejected.
+- **Repository / use cases** — filtering, pagination, and other data behavior against a test DB or a faked repository.
 
 **No useless tests.** A test earns its place only if it would FAIL when real logic breaks. Do NOT write (and delete when you find): duplicates, trivial pass-throughs already covered transitively, tautologies (asserting a mock returns what you configured), or config/schema mirrors.
 
@@ -143,7 +136,6 @@ Mandatory. Invoke BEFORE touching code.
 - Design / "let's build X" → `superpowers:brainstorming` first.
 - Debugging unexpected behavior → `superpowers:systematic-debugging`.
 - Next.js routing / RSC / Route Handlers → `vercel:nextjs`. Caching / `use cache` → `vercel:next-cache-components`.
-- Postgres perf → `supabase:supabase-postgres-best-practices`.
 - Addressing review feedback → `superpowers:receiving-code-review`. Each comment is a sample — grep for the same pattern elsewhere and fix it everywhere.
 
 # Writing docs & specs — no speculation, no slop
