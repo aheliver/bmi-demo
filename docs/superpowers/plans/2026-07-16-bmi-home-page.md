@@ -183,7 +183,7 @@ git commit -m "feat(db): add participant + contact schema and base migration"
 **Interfaces:**
 - Produces: `participant.weight_kg`, `participant.weight_lb`, `participant.height_cm`, `participant.height_in` as `GENERATED ALWAYS AS (...) STORED`, plus the matching `Participant` fields that Prisma **omits from create/update inputs**. The exact schema annotation is whatever `db pull` writes — never a guess.
 
-**Why all four (the design decision):** the display toggle is global (one unit system for the whole table) but rows are entered in mixed units. To show every row in the selected system with **no conversion on read** — the requirement — the DB stores each measurement in **both** systems as generated columns. The API returns all four, the client just picks the pair matching the toggle and formats it. All four are generated from the single source (`*_value` + `*_unit`), so there is still zero drift and one source of truth. (This is why there is no client-side unit conversion — see Task 3, formatting only.)
+**Why all four (the design decision):** the display toggle can render **any** row in **either** system, and **read-time conversion is forbidden** (the requirement). So both representations of each measurement are **precomputed** in the DB — the client just picks the column matching the toggle and formats it. (This holds regardless of how rows were entered: even an all-metric dataset still needs `weight_lb`/`height_in` to render imperial without converting.) All four are generated from the single as-entered source, so there is zero drift and one source of truth, and no client-side unit conversion exists (see Task 3 — formatting only).
 
 **Why introspect, not hardcode:** Prisma has no first-class STORED-generated support and the correct field annotation (`@default(dbgenerated(...))` vs a comment vs `@ignore`) differs by version. Rather than guess, we create the columns in raw SQL and let `prisma db pull` introspect the annotation Prisma considers drift-free. The verification steps are a **hard gate** — do not proceed to Task 7/8 until both checks pass.
 
@@ -343,14 +343,17 @@ git commit -m "feat(domain): unit formatting helpers (select + format, no conver
 - Test: `src/domain/record.test.ts`
 
 **Interfaces:**
-- Produces: constants `SEXES`, `WEIGHT_UNITS`, `HEIGHT_UNITS`, `UNIT_SYSTEMS`; type `UnitSystem`; `recordDtoSchema` + `RecordDto`; `recordsQuerySchema` + `RecordsQuery`; `recordsResponseSchema` + `RecordsResponse`. This is the contract every other layer consumes.
+- Produces: constant `SEXES`; the shared unit vocabulary `UNIT_SYSTEMS` + `unitSystemSchema` + `UnitSystem`; `recordDtoSchema` + `RecordDto`; `recordsQuerySchema` + `RecordsQuery`; `recordsResponseSchema` + `RecordsResponse`. This is the contract every other layer consumes.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // src/domain/record.test.ts
+// Only the query schema is tested — it carries real logic (coercion + defaults + bounds)
+// and is the request trust boundary. recordDtoSchema is a plain output shape (no logic
+// beyond Zod primitives), so testing it would just be testing Zod — omitted per AGENTS.md.
 import { describe, it, expect } from "vitest"
-import { recordsQuerySchema, recordDtoSchema } from "./record"
+import { recordsQuerySchema } from "./record"
 
 describe("recordsQuerySchema", () => {
   it("applies defaults when absent", () => {
@@ -362,20 +365,6 @@ describe("recordsQuerySchema", () => {
   it("rejects page < 1 and pageSize > 100", () => {
     expect(recordsQuerySchema.safeParse({ page: 0 }).success).toBe(false)
     expect(recordsQuerySchema.safeParse({ pageSize: 101 }).success).toBe(false)
-  })
-})
-
-describe("recordDtoSchema", () => {
-  const valid = {
-    id: 1, firstName: "Ada", lastName: "Lovelace", dob: "1815-12-10",
-    weightKg: 68.04, weightLb: 150, heightCm: 177.8, heightIn: 70,
-    bmi: 21.5, createdAt: "2026-07-16T00:00:00.000Z",
-  }
-  it("accepts a well-formed row", () => {
-    expect(recordDtoSchema.parse(valid)).toEqual(valid)
-  })
-  it("rejects a non-positive bmi", () => {
-    expect(recordDtoSchema.safeParse({ ...valid, bmi: 0 }).success).toBe(false)
   })
 })
 ```
@@ -392,10 +381,13 @@ Expected: FAIL — module `./record` not found.
 import { z } from "zod"
 
 export const SEXES = ["male", "female"] as const
-export const WEIGHT_UNITS = ["kg", "lb"] as const
-export const HEIGHT_UNITS = ["cm", "in"] as const
+
+// The one shared unit vocabulary — reused by the DB enum, the domain (BMI), the display
+// toggle, and the cookie. No unit string literals live anywhere else in the app.
 export const UNIT_SYSTEMS = ["metric", "imperial"] as const
-export type UnitSystem = (typeof UNIT_SYSTEMS)[number]
+export const unitSystemSchema = z.enum(UNIT_SYSTEMS)
+export type UnitSystem = z.infer<typeof unitSystemSchema>
+// Metric ⇒ weight in kg, height in cm. Imperial ⇒ weight in lb, height in in.
 
 /** One row of GET /api/records. Participant fields only — no contact PII.
  *  Carries both unit systems (from DB generated columns) so the client renders either
@@ -432,7 +424,7 @@ export type RecordsResponse = z.infer<typeof recordsResponseSchema>
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run src/domain/record.test.ts`
-Expected: PASS (5 tests).
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -450,7 +442,9 @@ git commit -m "feat(domain): shared Zod record contract (DTO, query, response)"
 - Test: `src/domain/bmi.test.ts`
 
 **Interfaces:**
-- Produces: `BmiInput` (`{ weightValue: number; weightUnit: "kg" | "lb"; heightValue: number; heightUnit: "cm" | "in" }`) and `computeBmi(input: BmiInput): number` — result rounded to 1 decimal. Consumed by the seed (Task 8).
+- Consumes: `UnitSystem` (Task 4).
+- Produces: `BmiInput` (`{ weightValue: number; heightValue: number; system: UnitSystem }`) and `computeBmi(input: BmiInput): number` — result rounded to 1 decimal. Consumed by the seed (Task 8).
+- **Strictness by construction:** a single `system` (not independent weight/height units) means a metric weight can never be paired with an imperial height — mixing is unrepresentable, so there is no runtime "mixed units" error to throw or test. Uses the shared `UnitSystem` — no magic strings.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -462,14 +456,11 @@ import { computeBmi } from "./bmi"
 describe("computeBmi", () => {
   it("metric: kg + cm (CDC formula)", () => {
     // 68 kg, 178 cm -> 68 / 1.78^2 = 21.46...
-    expect(computeBmi({ weightValue: 68, weightUnit: "kg", heightValue: 178, heightUnit: "cm" })).toBe(21.5)
+    expect(computeBmi({ weightValue: 68, heightValue: 178, system: "metric" })).toBe(21.5)
   })
   it("imperial: lb + in (CDC × 703)", () => {
     // 150 lb, 70 in -> 150/70^2*703 = 21.52...
-    expect(computeBmi({ weightValue: 150, weightUnit: "lb", heightValue: 70, heightUnit: "in" })).toBe(21.5)
-  })
-  it("rejects a mixed unit pairing", () => {
-    expect(() => computeBmi({ weightValue: 68, weightUnit: "kg", heightValue: 70, heightUnit: "in" })).toThrow()
+    expect(computeBmi({ weightValue: 150, heightValue: 70, system: "imperial" })).toBe(21.5)
   })
 })
 ```
@@ -483,25 +474,21 @@ Expected: FAIL — module `./bmi` not found.
 
 ```ts
 // src/domain/bmi.ts
+import type { UnitSystem } from "./record"
+
 export interface BmiInput {
   weightValue: number
-  weightUnit: "kg" | "lb"
   heightValue: number
-  heightUnit: "cm" | "in"
+  system: UnitSystem
 }
 
-/** BMI from the as-entered values, using the CDC formula that matches the unit system.
- *  Units are paired by system (metric = kg+cm, imperial = lb+in); mixed pairings throw. */
-export function computeBmi({ weightValue, weightUnit, heightValue, heightUnit }: BmiInput): number {
-  let bmi: number
-  if (weightUnit === "kg" && heightUnit === "cm") {
-    const meters = heightValue / 100
-    bmi = weightValue / (meters * meters)
-  } else if (weightUnit === "lb" && heightUnit === "in") {
-    bmi = (weightValue / (heightValue * heightValue)) * 703
-  } else {
-    throw new Error(`Unsupported unit pairing: ${weightUnit}/${heightUnit}`)
-  }
+/** BMI from the as-entered values, using the CDC formula for the entry's unit system.
+ *  A single `system` makes a metric/imperial mix unrepresentable. */
+export function computeBmi({ weightValue, heightValue, system }: BmiInput): number {
+  const bmi =
+    system === "metric"
+      ? weightValue / (heightValue / 100) ** 2 // kg / m²
+      : (weightValue / heightValue ** 2) * 703 // lb / in² × 703
   return Math.round(bmi * 10) / 10
 }
 ```
@@ -509,7 +496,7 @@ export function computeBmi({ weightValue, weightUnit, heightValue, heightUnit }:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run src/domain/bmi.test.ts`
-Expected: PASS (3 tests).
+Expected: PASS (2 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -779,7 +766,8 @@ function makeRow(i: number) {
   const heightValue = imperial ? 60 + (i * 2) % 18 : 152 + (i * 3) % 46      // in : cm
   const weightUnit = imperial ? "lb" as const : "kg" as const
   const heightUnit = imperial ? "in" as const : "cm" as const
-  const bmi = computeBmi({ weightValue, weightUnit, heightValue, heightUnit })
+  const system = imperial ? "imperial" as const : "metric" as const
+  const bmi = computeBmi({ weightValue, heightValue, system })
   const year = 1955 + (i % 45)
   const month = String((i % 12) + 1).padStart(2, "0")
   const day = String((i % 27) + 1).padStart(2, "0")
@@ -844,60 +832,35 @@ git commit -m "feat(db): seed 60 mock participants with domain-computed BMI"
 
 **Files:**
 - Create: `src/services/list-records.ts`
-- Test: `src/services/list-records.test.ts`
 
 **Interfaces:**
-- Consumes: `RecordsQuery`/`RecordsResponse` (Task 4), `ParticipantRepository` (Task 6), `participantRepository` (Task 7).
-- Produces: `listRecords(query: RecordsQuery, repo?: ParticipantRepository): Promise<RecordsResponse>`. Thin pass-through — keeps the route handler HTTP-only. `repo` is injectable for the test only; defaults to the real repository.
+- Consumes: `RecordsQuery`/`RecordsResponse` (Task 4), the participant repository (Task 7).
+- Produces: `listRecords(query: RecordsQuery): Promise<RecordsResponse>`. Thin pass-through — keeps the route handler HTTP-only and the seam uniform (per AGENTS.md, a near pass-through use case is fine).
+- **No test:** the use case has no logic of its own (it forwards the query and returns the result). A mock-the-repo-and-assert-forwarding test would be a tautology, so none is written (per AGENTS.md "no useless tests"). It is exercised transitively by the route-handler and repository tests. Add a test here only if this function grows real logic.
 
-- [ ] **Step 1: Write the failing test**
+> The exact repository import/call below assumes Task 7's current shape (`participantRepository.list`). If the repository is refactored to plain functions (see the open decision), this becomes `listParticipants(query)` — a one-line change.
 
-```ts
-// src/services/list-records.test.ts
-import { describe, it, expect, vi } from "vitest"
-import { listRecords } from "./list-records"
-import type { ParticipantRepository } from "@/domain/participant-repository"
-
-describe("listRecords", () => {
-  it("passes the query to the repository and returns its result", async () => {
-    const repo: ParticipantRepository = { list: vi.fn().mockResolvedValue({ data: [], total: 0 }) }
-    const result = await listRecords({ page: 2, pageSize: 20 }, repo)
-    expect(repo.list).toHaveBeenCalledWith({ page: 2, pageSize: 20 })
-    expect(result).toEqual({ data: [], total: 0 })
-  })
-})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npx vitest run src/services/list-records.test.ts`
-Expected: FAIL — module `./list-records` not found.
-
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 1: Write the implementation**
 
 ```ts
 // src/services/list-records.ts
 import type { RecordsQuery, RecordsResponse } from "@/domain/record"
-import type { ParticipantRepository } from "@/domain/participant-repository"
 import { participantRepository } from "@/infrastructure/participant-repository"
 
-export async function listRecords(
-  query: RecordsQuery,
-  repo: ParticipantRepository = participantRepository,
-): Promise<RecordsResponse> {
-  return repo.list(query)
+export async function listRecords(query: RecordsQuery): Promise<RecordsResponse> {
+  return participantRepository.list(query)
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 2: Typecheck**
 
-Run: `npx vitest run src/services/list-records.test.ts`
-Expected: PASS (1 test).
+Run: `npm run typecheck`
+Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add src/services/list-records.ts src/services/list-records.test.ts
+git add src/services/list-records.ts
 git commit -m "feat(services): listRecords use case"
 ```
 
@@ -1581,42 +1544,13 @@ git commit -m "feat(web): records data table island with unit-aware formatting"
 - Create: `src/components/site-header.tsx`
 - Create: `src/components/site-footer.tsx`
 - Create: `src/components/add-fab.tsx`
-- Test: `src/components/unit-toggle.test.tsx`
 
 **Interfaces:**
 - Consumes: `useUnitSystem` (Task 13), shadcn `toggle-group` + `button`, `lucide-react` icons.
 - Produces: `UnitToggle` (Metric/Imperial `ToggleGroup`, calls `setSystem`); `SiteHeader` (app title + `UnitToggle`); `SiteFooter` (name/copyright); `AddFab` (fixed bottom-right `+` button — `aria-label="Add record"`, no onClick behavior yet).
+- **No unit test:** these are presentational/wiring components with no logic of their own — `UnitToggle` just forwards `ToggleGroup`'s value to `setSystem`. A unit test would mostly assert shadcn's own behavior; the real click→units interaction is covered by the Playwright check in Task 17.
 
-- [ ] **Step 1: Write the failing test**
-
-```tsx
-// src/components/unit-toggle.test.tsx
-import { describe, it, expect, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
-import { UnitToggle } from "./unit-toggle"
-
-const setSystem = vi.fn()
-vi.mock("@/hooks/use-unit-system", () => ({
-  useUnitSystem: () => ({ system: "metric", setSystem }),
-}))
-
-describe("UnitToggle", () => {
-  it("switches to imperial when clicked", async () => {
-    render(<UnitToggle />)
-    // shadcn/base-ui ToggleGroup items render as <button>, not radios.
-    await userEvent.click(screen.getByRole("button", { name: /imperial/i }))
-    expect(setSystem).toHaveBeenCalledWith("imperial")
-  })
-})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npx vitest run src/components/unit-toggle.test.tsx`
-Expected: FAIL — module `./unit-toggle` not found.
-
-- [ ] **Step 3: Write the components**
+- [ ] **Step 1: Write the components**
 
 ```tsx
 // src/components/unit-toggle.tsx
@@ -1688,15 +1622,15 @@ export function AddFab() {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 2: Typecheck**
 
-Run: `npx vitest run src/components/unit-toggle.test.tsx`
-Expected: PASS (1 test). If it fails to find the button, open the generated `src/components/ui/toggle-group.tsx` and confirm the item's actual role/accessible name, then adjust the query to match (query by accessible name, not by a guessed role).
+Run: `npm run typecheck`
+Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add src/components/unit-toggle.tsx src/components/site-header.tsx src/components/site-footer.tsx src/components/add-fab.tsx src/components/unit-toggle.test.tsx
+git add src/components/unit-toggle.tsx src/components/site-header.tsx src/components/site-footer.tsx src/components/add-fab.tsx
 git commit -m "feat(web): unit toggle, header, footer, add FAB"
 ```
 
@@ -1914,4 +1848,4 @@ Expected: a PR URL. Hand it to the human. Do **not** merge.
 
 **Placeholder scan:** no TBD/TODO; every code step has complete code. The one deliberately-not-hardcoded value — the Prisma generated-column field annotation — is resolved empirically via `prisma db pull` behind a hard verification gate (Task 2 Steps 5–6), not guessed.
 
-**Type consistency:** `RecordDto`, `RecordsQuery`, `RecordsResponse`, `ParticipantRepository.list`, `listRecords(query, repo?)`, `recordsQueryKey(page, pageSize)`, `fetchRecords(page, pageSize)`, `useRecords(page, pageSize)`, `formatWeight(weightKg, weightLb, system)`, `formatHeight(heightCm, heightIn, system)`, `computeBmi(BmiInput)`, `getUnitSystem()`, `UnitSystemProvider({ initialSystem })`, `useUnitSystem()` — names/signatures are consistent across every task that references them.
+**Type consistency:** `RecordDto`, `RecordsQuery`, `RecordsResponse`, `ParticipantRepository.list`, `listRecords(query)`, `recordsQueryKey(page, pageSize)`, `fetchRecords(page, pageSize)`, `useRecords(page, pageSize)`, `formatWeight(weightKg, weightLb, system)`, `formatHeight(heightCm, heightIn, system)`, `computeBmi(BmiInput)`, `getUnitSystem()`, `UnitSystemProvider({ initialSystem })`, `useUnitSystem()` — names/signatures are consistent across every task that references them.
