@@ -1,13 +1,13 @@
 "use client"
 
-import { createContext, useCallback, useState } from "react"
+import { createContext, useCallback, useContext, useState } from "react"
 
-import type { UnitSystem } from "@/domain/record"
-import { UNIT_SYSTEM_COOKIE } from "@/lib/unit-system"
+import type { UnitSystem } from "@/lib/unit-system"
+import { UNIT_COOKIE } from "@/config/constants"
 
 type UnitSystemContextValue = { system: UnitSystem; setSystem: (next: UnitSystem) => void }
 
-export const UnitSystemContext = createContext<UnitSystemContextValue | null>(null)
+const UnitSystemContext = createContext<UnitSystemContextValue | null>(null)
 
 export function UnitSystemProvider({
   initialSystem,
@@ -20,7 +20,7 @@ export function UnitSystemProvider({
 
   const setSystem = useCallback((next: UnitSystem) => {
     setSystemState(next)
-    document.cookie = `${UNIT_SYSTEM_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`
+    document.cookie = `${UNIT_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`
   }, [])
 
   return (
@@ -28,4 +28,10 @@ export function UnitSystemProvider({
       {children}
     </UnitSystemContext.Provider>
   )
+}
+
+export function useUnitSystem() {
+  const ctx = useContext(UnitSystemContext)
+  if (!ctx) throw new Error("useUnitSystem must be used within UnitSystemProvider")
+  return ctx
 }

@@ -1,5 +1,5 @@
-import { recordsQuerySchema } from "@/domain/record"
-import { listRecords } from "@/services/list-records"
+import { recordsQuerySchema } from "@/features/records/schema"
+import { listParticipants } from "@/infrastructure/participant-repo"
 import { withRequestLog } from "@/lib/with-request-log"
 
 export const GET = withRequestLog("records.list", async (req) => {
@@ -13,6 +13,6 @@ export const GET = withRequestLog("records.list", async (req) => {
     return Response.json({ error: "Invalid query parameters" }, { status: 400 })
   }
 
-  const result = await listRecords(parsed.data)
+  const result = await listParticipants(parsed.data)
   return Response.json(result)
 })

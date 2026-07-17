@@ -1,7 +1,8 @@
 "use client"
 
 import { useMemo } from "react"
-import { parseAsInteger, useQueryState } from "nuqs"
+import { useQueryState } from "nuqs"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table"
 
 import {
@@ -14,14 +15,19 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useRecords } from "@/hooks/use-records"
-import { useUnitSystem } from "@/hooks/use-unit-system"
-import { recordColumns } from "@/components/record-columns"
+import { useUnitSystem } from "@/providers/unit-system-provider"
+import { recordsQueryKey, fetchRecords } from "@/features/records/api/get-records"
+import { recordsSearchParams } from "@/features/records/search-params"
+import { recordColumns } from "@/features/records/components/record-columns"
 
 export function RecordsTable({ pageSize }: { pageSize: number }) {
-  const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1))
+  const [page, setPage] = useQueryState("page", recordsSearchParams.page)
   const { system } = useUnitSystem()
-  const { data, isPending, isError } = useRecords(page, pageSize)
+  const { data, isPending, isError } = useQuery({
+    queryKey: recordsQueryKey(page, pageSize),
+    queryFn: () => fetchRecords(page, pageSize),
+    placeholderData: keepPreviousData,
+  })
 
   const columns = useMemo(() => recordColumns(system), [system])
   const rows = data?.data ?? []
@@ -90,12 +96,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
           Page {page} of {pageCount} · {total} records
         </p>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
             Previous
           </Button>
           <Button

@@ -1,5 +1,5 @@
 import { prisma } from "./prisma"
-import type { RecordsQuery, RecordsResponse, RecordDto } from "@/domain/record"
+import type { RecordsQuery, RecordsResponse, Record } from "@/features/records/schema"
 
 const listSelect = {
   id: true,
@@ -29,7 +29,7 @@ type Row = {
   createdAt: Date
 }
 
-function toDto(row: Row): RecordDto {
+function toRecord(row: Row): Record {
   return {
     id: row.id,
     firstName: row.firstName,
@@ -56,5 +56,5 @@ export async function listParticipants({ page, pageSize }: RecordsQuery): Promis
     }),
     prisma.participant.count({ where }),
   ])
-  return { data: rows.map(toDto), total }
+  return { data: rows.map(toRecord), total }
 }

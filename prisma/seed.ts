@@ -3,7 +3,7 @@ import "dotenv/config"
 import { PrismaPg } from "@prisma/adapter-pg"
 
 import { PrismaClient } from "../src/lib/generated/prisma/client"
-import { computeBmi } from "../src/domain/bmi"
+import { computeBmi } from "../src/lib/bmi"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })

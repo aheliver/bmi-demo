@@ -2,10 +2,11 @@
 
 import type { ColumnDef } from "@tanstack/react-table"
 
-import type { RecordDto, UnitSystem } from "@/domain/record"
-import { formatWeight, formatHeight } from "@/domain/units"
+import type { UnitSystem } from "@/lib/unit-system"
+import { formatWeight, formatHeight } from "@/lib/format"
+import type { Record } from "@/features/records/schema"
 
-export function recordColumns(system: UnitSystem): ColumnDef<RecordDto>[] {
+export function recordColumns(system: UnitSystem): ColumnDef<Record>[] {
   return [
     {
       id: "fullName",

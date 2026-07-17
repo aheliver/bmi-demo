@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { formatWeight, formatHeight } from "./units"
+import { formatWeight, formatHeight } from "./format"
 
 describe("formatWeight", () => {
   it("selects + formats the kg value in metric", () => {

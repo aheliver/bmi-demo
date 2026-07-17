@@ -1,33 +1,32 @@
+import { cookies } from "next/headers"
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query"
+import type { SearchParams } from "nuqs/server"
 
 import { getQueryClient } from "@/lib/query-client"
-import { recordsQueryKey } from "@/lib/records-query"
-import { listRecords } from "@/services/list-records"
-import { getUnitSystem } from "@/lib/unit-system.server"
+import { unitSystemSchema } from "@/lib/unit-system"
+import { UNIT_COOKIE } from "@/config/constants"
+import { listParticipants } from "@/infrastructure/participant-repo"
+import { recordsQueryKey } from "@/features/records/api/get-records"
+import { loadRecordsSearchParams } from "@/features/records/search-params"
 import { UnitSystemProvider } from "@/providers/unit-system-provider"
 import { SiteHeader } from "@/components/site-header"
-import { RecordsTable } from "@/components/records-table"
-
-type SearchParams = Promise<Record<string, string | string[] | undefined>>
+import { RecordsTable } from "@/features/records/components/records-table"
 
 export async function RecordsSection({
   searchParams,
   pageSize,
 }: {
-  searchParams: SearchParams
+  searchParams: Promise<SearchParams>
   pageSize: number
 }) {
-  // Awaiting these dynamic inputs HERE (inside <Suspense>) keeps the page shell static.
-  const sp = await searchParams
-  const rawPage = Array.isArray(sp.page) ? sp.page[0] : sp.page
-  const page = Math.max(1, Number(rawPage) || 1)
-
-  const system = await getUnitSystem()
+  const { page } = await loadRecordsSearchParams(searchParams)
+  const store = await cookies()
+  const system = unitSystemSchema.catch("metric").parse(store.get(UNIT_COOKIE)?.value)
 
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({
     queryKey: recordsQueryKey(page, pageSize),
-    queryFn: () => listRecords({ page, pageSize }),
+    queryFn: () => listParticipants({ page, pageSize }),
   })
 
   return (
