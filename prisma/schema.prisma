@@ -11,3 +11,62 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum Sex {
+  male
+  female
+}
+
+enum WeightUnit {
+  kg
+  lb
+}
+
+enum HeightUnit {
+  cm
+  in
+}
+
+model Participant {
+  id          Int        @id @default(autoincrement())
+  firstName   String     @map("first_name")
+  lastName    String     @map("last_name")
+  dob         DateTime   @db.Date
+  sex         Sex
+  weightValue Decimal    @map("weight_value") @db.Decimal(7, 3)
+  weightUnit  WeightUnit @map("weight_unit")
+  heightValue Decimal    @map("height_value") @db.Decimal(6, 2)
+  heightUnit  HeightUnit @map("height_unit")
+
+  // NOTE: the generated STORED columns (weight_kg, weight_lb, height_cm, height_in)
+  // are deliberately NOT declared here yet. Task 2 creates them via raw SQL, then
+  // `prisma db pull` introspects them back with Prisma's own correct annotation.
+
+  bmi Decimal @db.Decimal(4, 1)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  contact Contact?
+
+  @@index([bmi])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("participant")
+}
+
+model Contact {
+  id            Int       @id @default(autoincrement())
+  participantId Int       @unique @map("participant_id")
+  phone         String
+  email         String
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([participantId])
+  @@map("contact")
+}
