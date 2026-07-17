@@ -186,14 +186,18 @@ git commit -m "feat(db): add participant + contact schema and base migration"
 
 **Why introspect, not hardcode:** Prisma has no first-class STORED-generated support and the correct field annotation (`@default(dbgenerated(...))` vs a comment vs `@ignore`) differs by version. Rather than guess, we create the columns in raw SQL and let `prisma db pull` introspect the annotation Prisma considers drift-free. The verification steps are a **hard gate** — do not proceed to Task 7/8 until both checks pass.
 
-- [ ] **Step 1: Create an empty migration to hold the raw DDL**
+**Why not `prisma migrate dev` here:** these columns are intentionally absent from `schema.prisma` (Prisma can't model STORED-generated), so there is **no schema diff** — `migrate dev --create-only` won't scaffold anything, and a plain `migrate dev` would see the DB ahead of the schema and try to **drop** the new columns. So we hand-author the migration and apply it with `migrate deploy` (applies pending migrations, no diffing/drop), then `db pull` to sync the schema.
 
-Run: `npx prisma migrate dev --create-only --name add_generated_unit_columns`
-Expected: a new migration folder with an (essentially empty) `migration.sql` — the schema and DB are otherwise in sync.
+- [ ] **Step 1: Hand-create the migration file with the raw DDL**
 
-- [ ] **Step 2: Write the generated-column DDL into that migration**
+Create `prisma/migrations/<timestamp>_add_generated_unit_columns/migration.sql` (timestamp in Prisma's `YYYYMMDDHHMMSS` format so it sorts after the base migration):
 
-Replace the migration's `migration.sql` contents with (0.45359237 kg/lb, 2.54 cm/in — exact constants; each system is a `CASE` on the entered unit, so no generated column references another):
+```bash
+MIG="prisma/migrations/$(date +%Y%m%d%H%M%S)_add_generated_unit_columns"
+mkdir -p "$MIG"
+```
+
+Write this into `$MIG/migration.sql` (0.45359237 kg/lb, 2.54 cm/in — exact constants; each system is a `CASE` on the entered unit, so no generated column references another):
 
 ```sql
 ALTER TABLE "participant"
@@ -211,12 +215,12 @@ ALTER TABLE "participant"
   ) STORED;
 ```
 
-- [ ] **Step 3: Apply the migration**
+- [ ] **Step 2: Apply the migration (deploy, not dev)**
 
-Run: `npx prisma migrate dev`
-Expected: applies the pending migration and reports success. If it asks to reset, do **not** reset — re-read the SQL for a syntax slip.
+Run: `npx prisma migrate deploy`
+Expected: applies the one pending migration and records it in `_prisma_migrations`, with no schema diffing and no attempt to drop the columns. (`migrate deploy` applies pending migrations only.)
 
-- [ ] **Step 4: Verify the columns are generated in the live DB, and the math is right**
+- [ ] **Step 3: Verify the columns are generated in the live DB, and the math is right**
 
 ```bash
 docker exec bmi_postgres psql -U bmi -d bmi -c "\d participant" | grep -E "weight_kg|weight_lb|height_cm|height_in"
@@ -230,12 +234,12 @@ docker exec bmi_postgres psql -U bmi -d bmi -c "DELETE FROM participant WHERE fi
 ```
 Expected: `weight_kg ≈ 68.0389`, `weight_lb = 150.0000`, `height_cm = 177.80`, `height_in = 70.00`.
 
-- [ ] **Step 5: Introspect the columns back into the schema**
+- [ ] **Step 4: Introspect the columns back into the schema**
 
 Run: `npx prisma db pull`
 Expected: `schema.prisma` now contains `weightKg`/`weightLb`/`heightCm`/`heightIn` fields on `Participant` with whatever annotation Prisma emits for generated columns. `db pull` may reorder fields or rewrite the relation/`@map` formatting — **diff it** (`git diff prisma/schema.prisma`) and restore any relation names, `@@map`, or index lines it dropped, keeping ONLY the four new generated-column fields as the intended change. Re-add the `@map(...)` for each if pull didn't.
 
-- [ ] **Step 6: Regenerate the client and GATE on read-only inputs (do not proceed if this fails)**
+- [ ] **Step 5: Regenerate the client and GATE on read-only inputs (do not proceed if this fails)**
 
 Run: `npx prisma generate`
 Then confirm Prisma treats the columns as read-only:
@@ -248,11 +252,11 @@ grep -RnE "weightKg|weightLb|heightCm|heightIn" src/lib/generated/prisma/models.
 
 If either fails (e.g. a field is writable/required), the annotation is wrong: mark the field with `@ignore` for writes while keeping it readable, or adjust per the introspected form, then re-run this step. Only continue once inserts won't send these columns (Postgres rejects writes to a generated column).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add prisma/migrations prisma/schema.prisma
-git commit -m "feat(db): weight_kg/height_cm generated STORED columns (introspected)"
+git commit -m "feat(db): generated STORED unit columns (introspected)"
 ```
 
 ---
