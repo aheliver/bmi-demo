@@ -1,9 +1,14 @@
-import { QueryClient, isServer } from "@tanstack/react-query"
+import { QueryClient, environmentManager } from "@tanstack/react-query"
 
-let browserClient: QueryClient | undefined
+function makeQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { staleTime: 60_000 } } })
+}
 
-export function getQueryClient(): QueryClient {
-  const make = () => new QueryClient({ defaultOptions: { queries: { staleTime: 60_000 } } })
-  if (isServer) return make()
-  return (browserClient ??= make())
+let browserQueryClient: QueryClient | undefined
+
+export function getQueryClient() {
+  if (environmentManager.isServer()) {
+    return makeQueryClient() // new client per request on the server
+  }
+  return (browserQueryClient ??= makeQueryClient()) // reuse in the browser
 }

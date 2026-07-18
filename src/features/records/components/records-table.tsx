@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { useQueryState } from "nuqs"
+import { parseAsInteger, useQueryState } from "nuqs"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table"
 
@@ -17,11 +17,10 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUnitSystem } from "@/providers/unit-system-provider"
 import { recordsQueryKey, fetchRecords } from "@/features/records/api/get-records"
-import { recordsSearchParams } from "@/features/records/search-params"
 import { recordColumns } from "@/features/records/components/record-columns"
 
 export function RecordsTable({ pageSize }: { pageSize: number }) {
-  const [page, setPage] = useQueryState("page", recordsSearchParams.page)
+  const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1))
   const { system } = useUnitSystem()
   const { data, isPending, isError } = useQuery({
     queryKey: recordsQueryKey(page, pageSize),
