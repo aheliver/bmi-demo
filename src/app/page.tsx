@@ -1,37 +1,37 @@
 import { Suspense } from "react"
-import type { SearchParams } from "nuqs/server"
 
+import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import { AddFab } from "@/components/add-fab"
-import { RecordsSection } from "@/features/records/components/records-section"
 import { Skeleton } from "@/components/ui/skeleton"
+import { UnitSystemProvider } from "@/providers/unit-system-provider"
+import { RecordsTable } from "@/features/records/components/records-table"
 
 const PAGE_SIZE = 20
 
-export default function Page({ searchParams }: { searchParams: Promise<SearchParams> }) {
+export default function Page() {
   return (
-    <div className="flex min-h-svh flex-col">
-      <Suspense fallback={<RecordsSectionFallback />}>
-        <RecordsSection searchParams={searchParams} pageSize={PAGE_SIZE} />
-      </Suspense>
-      <SiteFooter />
-      <AddFab />
-    </div>
+    <UnitSystemProvider>
+      <div className="flex min-h-svh flex-col">
+        <SiteHeader />
+        <main className="flex-1 px-6 py-6">
+          <Suspense fallback={<RecordsFallback />}>
+            <RecordsTable pageSize={PAGE_SIZE} />
+          </Suspense>
+        </main>
+        <SiteFooter />
+        <AddFab />
+      </div>
+    </UnitSystemProvider>
   )
 }
 
-function RecordsSectionFallback() {
+function RecordsFallback() {
   return (
-    <>
-      <div className="flex items-center justify-between border-b px-6 py-4">
-        <Skeleton className="h-6 w-32" />
-        <Skeleton className="h-8 w-40" />
-      </div>
-      <main className="flex-1 space-y-3 px-6 py-6">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-full" />
-        ))}
-      </main>
-    </>
+    <div className="space-y-3">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <Skeleton key={i} className="h-10 w-full" />
+      ))}
+    </div>
   )
 }
