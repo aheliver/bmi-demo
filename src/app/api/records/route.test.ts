@@ -58,6 +58,20 @@ describe("POST /api/records", () => {
     )
   })
 
+  it("ignores a client-supplied bmi and uses the server-computed value", async () => {
+    await post({ ...body, bmi: 999 })
+    expect(createParticipant).toHaveBeenCalledWith(
+      expect.objectContaining({ bmi: 22.7 }),
+    )
+  })
+
+  it("derives imperial units when system is imperial", async () => {
+    await post({ ...body, system: "imperial" })
+    expect(createParticipant).toHaveBeenCalledWith(
+      expect.objectContaining({ weightUnit: "lb", heightUnit: "in" }),
+    )
+  })
+
   it("400s on an invalid body", async () => {
     const res = await post({ ...body, firstName: "" })
     expect(res.status).toBe(400)

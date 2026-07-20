@@ -42,7 +42,7 @@ export const createRecordSchema = z
     weightValue: z.coerce.number().positive("Enter a positive number"),
     heightValue: z.coerce.number().positive("Enter a positive number"),
     phone: z.string().trim().max(30).optional().default(""),
-    email: z.string().trim().optional().default(""),
+    email: z.string().trim().max(254).optional().default(""),
   })
   .superRefine((val, ctx) => {
     const hasPhone = val.phone.length > 0
