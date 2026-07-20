@@ -46,3 +46,35 @@ export async function listParticipants({ page, pageSize }: RecordsQuery): Promis
   ])
   return { data: rows.map(toRecord), total }
 }
+
+export type CreateParticipantInput = {
+  firstName: string
+  lastName: string
+  dob: string
+  sex: "male" | "female"
+  weightValue: number
+  weightUnit: "kg" | "lb"
+  heightValue: number
+  heightUnit: "cm" | "in"
+  bmi: number
+  contact?: { phone: string; email: string }
+}
+
+export async function createParticipant(input: CreateParticipantInput): Promise<Record> {
+  const row = await prisma.participant.create({
+    data: {
+      firstName: input.firstName,
+      lastName: input.lastName,
+      dob: new Date(input.dob),
+      sex: input.sex,
+      weightValue: input.weightValue,
+      weightUnit: input.weightUnit,
+      heightValue: input.heightValue,
+      heightUnit: input.heightUnit,
+      bmi: input.bmi,
+      ...(input.contact ? { contact: { create: input.contact } } : {}),
+    },
+    select: listSelect,
+  })
+  return toRecord(row)
+}
