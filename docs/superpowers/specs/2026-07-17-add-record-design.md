@@ -55,7 +55,7 @@ A single `createRecordSchema` (colocated with its inferred type in `src/features
 
 ## Logging
 
-The `POST` handler is wrapped with the existing `withRequestLog`. Emit `record.created` on success and `record.create.failed` on error. Per the logging rules, log counts/outcomes only — never field values (health data / PII).
+The `POST` handler is wrapped with the existing `withRequestLog` (event tag `records.create`). Emit `record.created` (with only the new record id) on success. Failures are captured by `withRequestLog` itself, which logs `http.request.failed` with the `records.create` event tag and the error, and returns 500 — so no separate `record.create.failed` emission is added in the handler. Per the logging rules, log counts/outcomes only — never field values (health data / PII).
 
 ## Components and files
 
