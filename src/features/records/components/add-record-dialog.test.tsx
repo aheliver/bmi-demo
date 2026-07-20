@@ -19,7 +19,7 @@ function SystemProbe() {
 
 const mutateMock = vi.fn()
 
-vi.mock("@/features/records/api/create-record", () => ({
+vi.mock("@/features/records/api/hooks", () => ({
   useCreateRecord: () => ({ mutate: mutateMock, isPending: false }),
 }))
 

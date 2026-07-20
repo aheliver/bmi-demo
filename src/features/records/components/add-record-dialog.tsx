@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useForm, Controller, type DefaultValues } from "react-hook-form"
+import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
 import type { z } from "zod"
@@ -38,7 +38,7 @@ import {
 import { computeBmi } from "@/lib/bmi"
 import { useUnitSystem } from "@/providers/unit-system-provider"
 import { createRecordSchema } from "@/features/records/schema"
-import { useCreateRecord } from "@/features/records/api/create-record"
+import { useCreateRecord } from "@/features/records/api/hooks"
 
 type FormInput = z.input<typeof createRecordSchema>
 type FormOutput = z.output<typeof createRecordSchema>
@@ -68,7 +68,7 @@ export function AddRecordDialog() {
       heightValue: "",
       phone: "",
       email: "",
-    } as DefaultValues<FormInput>,
+    },
   })
 
   const weightLabel = system === "metric" ? "kg" : "lb"

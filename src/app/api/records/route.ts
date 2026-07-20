@@ -1,9 +1,7 @@
+import type { Prisma } from "@/lib/generated/prisma/client"
+
 import { recordsQuerySchema, createRecordSchema } from "@/features/records/schema"
-import {
-  listParticipants,
-  createParticipant,
-  type CreateParticipantInput,
-} from "@/infrastructure/participant-repo"
+import { listParticipants, createParticipant } from "@/infrastructure/participant-repo"
 import { computeBmi } from "@/lib/bmi"
 import { withRequestLog } from "@/lib/with-request-log"
 
@@ -23,14 +21,16 @@ export const GET = withRequestLog("records.list", async (req) => {
 })
 
 const toParticipantInput = createRecordSchema.transform(
-  ({ system, phone, email, weightValue, heightValue, ...rest }): CreateParticipantInput => ({
+  ({ system, phone, email, dob, weightValue, heightValue, ...rest }): Prisma.ParticipantCreateInput => ({
     ...rest,
+    dob: new Date(dob),
     weightValue,
     heightValue,
     weightUnit: system === "metric" ? "kg" : "lb",
     heightUnit: system === "metric" ? "cm" : "in",
     bmi: computeBmi({ weightValue, heightValue, system }),
-    contact: phone || email ? { phone: phone || null, email: email || null } : undefined,
+    contact:
+      phone || email ? { create: { phone: phone || null, email: email || null } } : undefined,
   }),
 )
 

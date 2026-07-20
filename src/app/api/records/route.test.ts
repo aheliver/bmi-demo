@@ -54,14 +54,14 @@ describe("POST /api/records", () => {
   it("passes a contact when phone and email are provided", async () => {
     await post({ ...body, phone: "555-0100", email: "a@b.com" })
     expect(createParticipant).toHaveBeenCalledWith(
-      expect.objectContaining({ contact: { phone: "555-0100", email: "a@b.com" } }),
+      expect.objectContaining({ contact: { create: { phone: "555-0100", email: "a@b.com" } } }),
     )
   })
 
   it("creates a contact from one field, storing null for the other", async () => {
     await post({ ...body, phone: "555-0100", email: "" })
     expect(createParticipant).toHaveBeenCalledWith(
-      expect.objectContaining({ contact: { phone: "555-0100", email: null } }),
+      expect.objectContaining({ contact: { create: { phone: "555-0100", email: null } } }),
     )
   })
 

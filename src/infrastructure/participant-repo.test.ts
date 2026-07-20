@@ -55,7 +55,7 @@ describe.skipIf(!hasDb)("createParticipant (integration)", () => {
 
   it("inserts a participant without a contact and returns the mapped record", async () => {
     const rec = await createParticipant({
-      firstName: "Grace", lastName: "Hopper", dob: "1980-05-05", sex: "female",
+      firstName: "Grace", lastName: "Hopper", dob: new Date("1980-05-05"), sex: "female",
       weightValue: 60, weightUnit: "kg", heightValue: 165, heightUnit: "cm", bmi: 22.0,
     })
     ids.push(rec.id)
@@ -68,9 +68,9 @@ describe.skipIf(!hasDb)("createParticipant (integration)", () => {
 
   it("inserts a nested contact when provided", async () => {
     const rec = await createParticipant({
-      firstName: "Alan", lastName: "Turing", dob: "1975-06-23", sex: "male",
+      firstName: "Alan", lastName: "Turing", dob: new Date("1975-06-23"), sex: "male",
       weightValue: 154, weightUnit: "lb", heightValue: 70, heightUnit: "in", bmi: 22.1,
-      contact: { phone: "555-0100", email: "alan@example.com" },
+      contact: { create: { phone: "555-0100", email: "alan@example.com" } },
     })
     ids.push(rec.id)
     const contact = await prisma.contact.findUnique({ where: { participantId: rec.id } })
