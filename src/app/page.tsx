@@ -11,7 +11,7 @@ import { recordsQueryKey } from "@/features/records/api/get-records"
 import { UnitSystemProvider } from "@/providers/unit-system-provider"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
-import { AddFab } from "@/components/add-fab"
+import { AddRecordDialog } from "@/features/records/components/add-record-dialog"
 import { RecordsTable } from "@/features/records/components/records-table"
 
 const PAGE_SIZE = 20
@@ -38,7 +38,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
           </HydrationBoundary>
         </main>
         <SiteFooter />
-        <AddFab />
+        <AddRecordDialog />
       </div>
     </UnitSystemProvider>
   )
