@@ -58,6 +58,13 @@ describe("POST /api/records", () => {
     )
   })
 
+  it("creates a contact from one field, storing null for the other", async () => {
+    await post({ ...body, phone: "555-0100", email: "" })
+    expect(createParticipant).toHaveBeenCalledWith(
+      expect.objectContaining({ contact: { phone: "555-0100", email: null } }),
+    )
+  })
+
   it("ignores a client-supplied bmi and uses the server-computed value", async () => {
     await post({ ...body, bmi: 999 })
     expect(createParticipant).toHaveBeenCalledWith(

@@ -1,5 +1,9 @@
 import { recordsQuerySchema, createRecordSchema } from "@/features/records/schema"
-import { listParticipants, createParticipant } from "@/infrastructure/participant-repo"
+import {
+  listParticipants,
+  createParticipant,
+  type CreateParticipantInput,
+} from "@/infrastructure/participant-repo"
 import { computeBmi } from "@/lib/bmi"
 import { withRequestLog } from "@/lib/with-request-log"
 
@@ -18,27 +22,26 @@ export const GET = withRequestLog("records.list", async (req) => {
   return Response.json(result)
 })
 
+const toParticipantInput = createRecordSchema.transform(
+  ({ system, phone, email, weightValue, heightValue, ...rest }): CreateParticipantInput => ({
+    ...rest,
+    weightValue,
+    heightValue,
+    weightUnit: system === "metric" ? "kg" : "lb",
+    heightUnit: system === "metric" ? "cm" : "in",
+    bmi: computeBmi({ weightValue, heightValue, system }),
+    contact: phone || email ? { phone: phone || null, email: email || null } : undefined,
+  }),
+)
+
 export const POST = withRequestLog("records.create", async (req, log) => {
   const body = await req.json().catch(() => null)
-  const parsed = createRecordSchema.safeParse(body)
+  const parsed = toParticipantInput.safeParse(body)
   if (!parsed.success) {
     return Response.json({ error: "Invalid record" }, { status: 400 })
   }
 
-  const { firstName, lastName, dob, sex, system, weightValue, heightValue, phone, email } = parsed.data
-  const record = await createParticipant({
-    firstName,
-    lastName,
-    dob,
-    sex,
-    weightValue,
-    weightUnit: system === "metric" ? "kg" : "lb",
-    heightValue,
-    heightUnit: system === "metric" ? "cm" : "in",
-    bmi: computeBmi({ weightValue, heightValue, system }),
-    contact: phone && email ? { phone, email } : undefined,
-  })
-
+  const record = await createParticipant(parsed.data)
   log.info({ recordId: record.id }, "record.created")
   return Response.json(record, { status: 201 })
 })

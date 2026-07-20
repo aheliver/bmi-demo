@@ -49,13 +49,15 @@ describe("createRecordSchema", () => {
     expect(createRecordSchema.safeParse({ ...valid, dob: "1899-12-31" }).success).toBe(false)
   })
 
-  it("requires phone and email together", () => {
-    expect(createRecordSchema.safeParse({ ...valid, phone: "555", email: "" }).success).toBe(false)
-    expect(createRecordSchema.safeParse({ ...valid, phone: "", email: "a@b.com" }).success).toBe(false)
+  it("allows phone and email independently (or neither)", () => {
+    expect(createRecordSchema.safeParse({ ...valid, phone: "555", email: "" }).success).toBe(true)
+    expect(createRecordSchema.safeParse({ ...valid, phone: "", email: "a@b.com" }).success).toBe(true)
+    expect(createRecordSchema.safeParse({ ...valid, phone: "", email: "" }).success).toBe(true)
     expect(createRecordSchema.safeParse({ ...valid, phone: "555", email: "a@b.com" }).success).toBe(true)
   })
 
-  it("rejects an invalid email when contact is provided", () => {
+  it("rejects an invalid email whenever email is provided", () => {
+    expect(createRecordSchema.safeParse({ ...valid, phone: "", email: "nope" }).success).toBe(false)
     expect(createRecordSchema.safeParse({ ...valid, phone: "555", email: "nope" }).success).toBe(false)
   })
 })

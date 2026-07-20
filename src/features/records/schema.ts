@@ -45,16 +45,7 @@ export const createRecordSchema = z
     email: z.string().trim().max(254).optional().default(""),
   })
   .superRefine((val, ctx) => {
-    const hasPhone = val.phone.length > 0
-    const hasEmail = val.email.length > 0
-    if (hasPhone !== hasEmail) {
-      ctx.addIssue({
-        code: "custom",
-        path: [hasPhone ? "email" : "phone"],
-        message: "Phone and email must be provided together",
-      })
-    }
-    if (hasEmail && !z.string().email().safeParse(val.email).success) {
+    if (val.email && !z.string().email().safeParse(val.email).success) {
       ctx.addIssue({ code: "custom", path: ["email"], message: "Invalid email" })
     }
   })

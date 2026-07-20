@@ -57,7 +57,7 @@ export type CreateParticipantInput = {
   heightValue: number
   heightUnit: "cm" | "in"
   bmi: number
-  contact?: { phone: string; email: string }
+  contact?: { phone: string | null; email: string | null }
 }
 
 export async function createParticipant(input: CreateParticipantInput): Promise<Record> {
