@@ -9,6 +9,8 @@ services:
       POSTGRES_USER: bmi
       POSTGRES_PASSWORD: bmi
       POSTGRES_DB: bmi
+      TZ: ${TZ:-UTC}
+    command: ["postgres", "-c", "timezone=${TZ:-UTC}"]
     ports:
       - "5432:5432"
     volumes:
