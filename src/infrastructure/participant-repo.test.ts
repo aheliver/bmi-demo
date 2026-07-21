@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { prisma } from "./prisma"
-import { listParticipants } from "./participant-repo"
+import { listParticipants, createParticipant } from "./participant-repo"
 
 const hasDb = Boolean(process.env.DATABASE_URL)
 
@@ -42,5 +42,38 @@ describe.skipIf(!hasDb)("listParticipants (integration)", () => {
     expect(row.dob).toBe("1990-01-01")
     expect(row).not.toHaveProperty("phone")
     expect(row).not.toHaveProperty("email")
+  })
+})
+
+describe.skipIf(!hasDb)("createParticipant (integration)", () => {
+  const ids: number[] = []
+
+  afterAll(async () => {
+    for (const id of ids) await prisma.participant.delete({ where: { id } })
+    await prisma.$disconnect()
+  })
+
+  it("inserts a participant without a contact and returns the mapped record", async () => {
+    const rec = await createParticipant({
+      firstName: "Grace", lastName: "Hopper", dob: new Date("1980-05-05"), sex: "female",
+      weightValue: 60, weightUnit: "kg", heightValue: 165, heightUnit: "cm", bmi: 22.0,
+    })
+    ids.push(rec.id)
+    expect(rec.weightKg).toBeCloseTo(60, 3)
+    expect(rec.heightCm).toBeCloseTo(165, 2)
+    expect(rec.bmi).toBe(22)
+    const contact = await prisma.contact.findUnique({ where: { participantId: rec.id } })
+    expect(contact).toBeNull()
+  })
+
+  it("inserts a nested contact when provided", async () => {
+    const rec = await createParticipant({
+      firstName: "Alan", lastName: "Turing", dob: new Date("1975-06-23"), sex: "male",
+      weightValue: 154, weightUnit: "lb", heightValue: 70, heightUnit: "in", bmi: 22.1,
+      contact: { create: { phone: "555-0100", email: "alan@example.com" } },
+    })
+    ids.push(rec.id)
+    const contact = await prisma.contact.findUnique({ where: { participantId: rec.id } })
+    expect(contact?.email).toBe("alan@example.com")
   })
 })

@@ -36,8 +36,8 @@ model Participant {
 model Contact {
   id            Int         @id @default(autoincrement())
   participantId Int         @unique @map("participant_id")
-  phone         String
-  email         String
+  phone         String?
+  email         String?
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime?   @map("deleted_at") @db.Timestamptz(6)

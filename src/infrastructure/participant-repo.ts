@@ -46,3 +46,8 @@ export async function listParticipants({ page, pageSize }: RecordsQuery): Promis
   ])
   return { data: rows.map(toRecord), total }
 }
+
+export async function createParticipant(data: Prisma.ParticipantCreateInput): Promise<Record> {
+  const row = await prisma.participant.create({ data, select: listSelect })
+  return toRecord(row)
+}
