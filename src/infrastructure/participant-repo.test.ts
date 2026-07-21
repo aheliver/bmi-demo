@@ -31,7 +31,12 @@ describe.skipIf(!hasDb)("listParticipants (integration)", () => {
   })
 
   it("maps generated columns to numbers in the DTO and leaks no PII", async () => {
-    const { data, total } = await listParticipants({ page: 1, pageSize: 100 })
+    const { data, total } = await listParticipants({
+      page: 1,
+      pageSize: 100,
+      sort: "createdAt",
+      order: "desc",
+    })
     expect(total).toBeGreaterThan(0)
     const row = data.find((r) => r.id === createdId)!
     expect(typeof row.weightKg).toBe("number")

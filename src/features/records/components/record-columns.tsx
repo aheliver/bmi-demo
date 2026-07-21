@@ -1,31 +1,70 @@
 import type { ColumnDef } from "@tanstack/react-table"
+import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react"
 
 import type { UnitSystem } from "@/lib/unit-system"
 import { formatWeight, formatHeight } from "@/lib/format"
-import type { Record } from "@/features/records/schema"
+import { Button } from "@/components/ui/button"
+import type { Record, SortField, SortOrder } from "@/features/records/schema"
 
-export function recordColumns(system: UnitSystem): ColumnDef<Record>[] {
+type SortState = {
+  sort: SortField
+  order: SortOrder
+  onSort: (field: SortField) => void
+}
+
+function SortableHeader({
+  label,
+  field,
+  sort,
+  order,
+  onSort,
+}: SortState & { label: string; field: SortField }) {
+  const active = sort === field
+  const Icon = active ? (order === "asc" ? ArrowUp : ArrowDown) : ChevronsUpDown
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="-ml-3 h-8"
+      onClick={() => onSort(field)}
+    >
+      {label}
+      <Icon className={active ? "size-4" : "size-4 opacity-50"} aria-hidden />
+    </Button>
+  )
+}
+
+export function recordColumns(
+  system: UnitSystem,
+  sortState: SortState
+): ColumnDef<Record>[] {
   return [
     {
       id: "fullName",
-      header: "Full name",
+      header: () => (
+        <SortableHeader label="Full name" field="name" {...sortState} />
+      ),
       accessorFn: (r) => `${r.firstName} ${r.lastName}`,
     },
     { accessorKey: "dob", header: "DOB" },
     {
       id: "height",
       header: "Height",
-      cell: ({ row }) => formatHeight(row.original.heightCm, row.original.heightIn, system),
+      cell: ({ row }) =>
+        formatHeight(row.original.heightCm, row.original.heightIn, system),
     },
     {
       id: "weight",
       header: "Weight",
-      cell: ({ row }) => formatWeight(row.original.weightKg, row.original.weightLb, system),
+      cell: ({ row }) =>
+        formatWeight(row.original.weightKg, row.original.weightLb, system),
     },
     { accessorKey: "bmi", header: "BMI" },
     {
       id: "createdAt",
-      header: "Date created",
+      header: () => (
+        <SortableHeader label="Date created" field="createdAt" {...sortState} />
+      ),
       cell: ({ row }) => row.original.createdAt.slice(0, 10),
     },
   ]

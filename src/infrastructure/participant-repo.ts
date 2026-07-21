@@ -1,6 +1,10 @@
 import { prisma } from "./prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
-import type { RecordsQuery, RecordsResponse, Record } from "@/features/records/schema"
+import type {
+  RecordsQuery,
+  RecordsResponse,
+  Record,
+} from "@/features/records/schema"
 
 const listSelect = {
   id: true,
@@ -17,6 +21,17 @@ const listSelect = {
 
 type Row = Prisma.ParticipantGetPayload<{ select: typeof listSelect }>
 
+function buildOrderBy(
+  sort: RecordsQuery["sort"],
+  order: RecordsQuery["order"]
+): Prisma.ParticipantOrderByWithRelationInput[] {
+  // `id` is a stable tiebreaker so rows with identical timestamps keep a fixed order.
+  if (sort === "name") {
+    return [{ firstName: order }, { lastName: order }, { id: "desc" }]
+  }
+  return [{ createdAt: order }, { id: "desc" }]
+}
+
 function toRecord(row: Row): Record {
   return {
     id: row.id,
@@ -32,13 +47,18 @@ function toRecord(row: Row): Record {
   }
 }
 
-export async function listParticipants({ page, pageSize }: RecordsQuery): Promise<RecordsResponse> {
+export async function listParticipants({
+  page,
+  pageSize,
+  sort,
+  order,
+}: RecordsQuery): Promise<RecordsResponse> {
   const where = { deletedAt: null }
   const [rows, total] = await Promise.all([
     prisma.participant.findMany({
       where,
       select: listSelect,
-      orderBy: { createdAt: "desc" },
+      orderBy: buildOrderBy(sort, order),
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
