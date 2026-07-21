@@ -1,12 +1,14 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
+import { useCallback } from "react"
 import { useQueryStates } from "nuqs"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import {
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type OnChangeFn,
+  type SortingState,
 } from "@tanstack/react-table"
 
 import {
@@ -19,7 +21,6 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useUnitSystem } from "@/providers/unit-system-provider"
 import {
   recordsQueryKey,
   fetchRecords,
@@ -35,25 +36,17 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
     [setQuery]
   )
 
-  const onSort = useCallback(
-    (field: SortField) => {
-      const active = field === sort
-      setQuery({
-        sort: field,
-        order: active
-          ? order === "asc"
-            ? "desc"
-            : "asc"
-          : field === "fullName"
-            ? "asc"
-            : "desc",
-        page: 1,
-      })
-    },
-    [setQuery, sort, order]
-  )
+  const sorting: SortingState = [{ id: sort, desc: order === "desc" }]
+  const onSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const [next] = typeof updater === "function" ? updater(sorting) : updater
+    if (!next) return
+    setQuery({
+      sort: next.id as SortField,
+      order: next.desc ? "desc" : "asc",
+      page: 1,
+    })
+  }
 
-  const { system } = useUnitSystem()
   const query = { page, pageSize, sort, order }
   const { data, isPending, isError } = useQuery({
     queryKey: recordsQueryKey(query),
@@ -61,18 +54,18 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
     placeholderData: keepPreviousData,
   })
 
-  const columns = useMemo(
-    () => recordColumns(system, { sort, order, onSort }),
-    [system, sort, order, onSort]
-  )
   const rows = data?.data ?? []
   const total = data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
 
   const table = useReactTable({
     data: rows,
-    columns,
+    columns: recordColumns,
     getCoreRowModel: getCoreRowModel(),
+    manualSorting: true,
+    enableSortingRemoval: false,
+    state: { sorting },
+    onSortingChange,
   })
 
   if (isError) {
@@ -102,7 +95,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
             {isPending ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {columns.map((_c, j) => (
+                  {recordColumns.map((_c, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -112,7 +105,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
             ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length}
+                  colSpan={recordColumns.length}
                   className="h-24 text-center"
                 >
                   No records.
