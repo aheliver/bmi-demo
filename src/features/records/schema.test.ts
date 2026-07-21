@@ -22,14 +22,23 @@ describe("recordsQuerySchema", () => {
     expect(recordsQuerySchema.safeParse({ page: 0 }).success).toBe(false)
     expect(recordsQuerySchema.safeParse({ pageSize: 101 }).success).toBe(false)
   })
-  it("accepts valid sort/order and rejects unknown values", () => {
+  it("accepts the whitelisted sort columns and rejects anything else", () => {
     expect(
-      recordsQuerySchema.parse({ sort: "name", order: "asc" })
+      recordsQuerySchema.parse({ sort: "fullName", order: "asc" })
     ).toMatchObject({
-      sort: "name",
+      sort: "fullName",
       order: "asc",
     })
-    expect(recordsQuerySchema.safeParse({ sort: "bogus" }).success).toBe(false)
+    expect(
+      recordsQuerySchema.parse({ sort: "createdAt", order: "desc" })
+    ).toMatchObject({
+      sort: "createdAt",
+      order: "desc",
+    })
+    expect(recordsQuerySchema.safeParse({ sort: "name" }).success).toBe(false)
+    expect(recordsQuerySchema.safeParse({ sort: "firstName" }).success).toBe(
+      false
+    )
     expect(recordsQuerySchema.safeParse({ order: "sideways" }).success).toBe(
       false
     )

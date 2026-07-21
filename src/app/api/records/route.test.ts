@@ -36,11 +36,11 @@ describe("GET /api/records", () => {
   })
 
   it("forwards a non-default sort/order to the repo", async () => {
-    await GET(new Request("http://localhost/api/records?sort=name&order=asc"))
+    await GET(new Request("http://localhost/api/records?sort=fullName&order=asc"))
     expect(listParticipants).toHaveBeenCalledWith({
       page: 1,
       pageSize: 20,
-      sort: "name",
+      sort: "fullName",
       order: "asc",
     })
   })

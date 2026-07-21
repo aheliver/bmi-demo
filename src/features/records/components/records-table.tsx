@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useMemo } from "react"
-import { parseAsInteger, parseAsStringLiteral, useQueryStates } from "nuqs"
+import { useQueryStates } from "nuqs"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import {
   flexRender,
@@ -25,39 +25,28 @@ import {
   fetchRecords,
 } from "@/features/records/api/get-records"
 import { recordColumns } from "@/features/records/components/record-columns"
-import {
-  sortFields,
-  sortOrders,
-  DEFAULT_SORT,
-  DEFAULT_ORDER,
-  type SortField,
-} from "@/features/records/schema"
+import type { RecordsQuery } from "@/features/records/schema"
+import { recordsSearchParsers } from "@/features/records/search-params"
 
 export function RecordsTable({ pageSize }: { pageSize: number }) {
-  const [{ page, sort, order }, setQuery] = useQueryStates({
-    page: parseAsInteger.withDefault(1),
-    sort: parseAsStringLiteral(sortFields).withDefault(DEFAULT_SORT),
-    order: parseAsStringLiteral(sortOrders).withDefault(DEFAULT_ORDER),
-  })
+  const [{ page, sort, order }, setQuery] = useQueryStates(recordsSearchParsers)
   const setPage = useCallback(
     (next: number) => setQuery({ page: next }),
     [setQuery]
   )
 
-  // Clicking the active column flips direction; a new column starts at its natural
-  // direction (A→Z for names, newest-first for dates). Sorting resets to page 1.
   const onSort = useCallback(
-    (field: SortField) => {
+    (field: RecordsQuery["sort"]) => {
+      const active = field === sort
       setQuery({
         sort: field,
-        order:
-          field === sort
-            ? order === "asc"
-              ? "desc"
-              : "asc"
-            : field === "name"
-              ? "asc"
-              : "desc",
+        order: active
+          ? order === "asc"
+            ? "desc"
+            : "asc"
+          : field === "fullName"
+            ? "asc"
+            : "desc",
         page: 1,
       })
     },

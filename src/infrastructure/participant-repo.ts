@@ -21,17 +21,6 @@ const listSelect = {
 
 type Row = Prisma.ParticipantGetPayload<{ select: typeof listSelect }>
 
-function buildOrderBy(
-  sort: RecordsQuery["sort"],
-  order: RecordsQuery["order"]
-): Prisma.ParticipantOrderByWithRelationInput[] {
-  // `id` is a stable tiebreaker so rows with identical timestamps keep a fixed order.
-  if (sort === "name") {
-    return [{ firstName: order }, { lastName: order }, { id: "desc" }]
-  }
-  return [{ createdAt: order }, { id: "desc" }]
-}
-
 function toRecord(row: Row): Record {
   return {
     id: row.id,
@@ -58,7 +47,10 @@ export async function listParticipants({
     prisma.participant.findMany({
       where,
       select: listSelect,
-      orderBy: buildOrderBy(sort, order),
+      orderBy: [
+        { [sort]: order },
+        { id: "desc" },
+      ] as Prisma.ParticipantOrderByWithRelationInput[],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),

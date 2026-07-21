@@ -25,11 +25,13 @@ model Participant {
   weightLb   Decimal    @default(dbgenerated("\nCASE weight_unit\n    WHEN 'lb'::\"WeightUnit\" THEN weight_value\n    ELSE (weight_value / 0.45359237)\nEND")) @map("weight_lb") @db.Decimal(9, 4)
   heightCm   Decimal    @default(dbgenerated("\nCASE height_unit\n    WHEN 'cm'::\"HeightUnit\" THEN height_value\n    ELSE (height_value * 2.54)\nEND")) @map("height_cm") @db.Decimal(6, 2)
   heightIn   Decimal    @default(dbgenerated("\nCASE height_unit\n    WHEN 'in'::\"HeightUnit\" THEN height_value\n    ELSE (height_value / 2.54)\nEND")) @map("height_in") @db.Decimal(6, 2)
+  fullName   String     @default(dbgenerated("lower((first_name || ' '::text) || last_name)")) @map("full_name")
   contact     Contact?
 
   @@index([bmi])
   @@index([createdAt])
   @@index([deletedAt])
+  @@index([fullName])
   @@map("participant")
 }
 

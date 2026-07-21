@@ -1,6 +1,6 @@
 import { cookies } from "next/headers"
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query"
-import { createLoader, parseAsInteger, parseAsStringLiteral } from "nuqs/server"
+import { createLoader } from "nuqs/server"
 import type { SearchParams } from "nuqs/server"
 
 import { getQueryClient } from "@/lib/query-client"
@@ -8,12 +8,7 @@ import { unitSystemSchema } from "@/lib/unit-system"
 import { UNIT_COOKIE } from "@/config/constants"
 import { listParticipants } from "@/infrastructure/participant-repo"
 import { recordsQueryKey } from "@/features/records/api/get-records"
-import {
-  sortFields,
-  sortOrders,
-  DEFAULT_SORT,
-  DEFAULT_ORDER,
-} from "@/features/records/schema"
+import { recordsSearchParsers } from "@/features/records/search-params"
 import { UnitSystemProvider } from "@/providers/unit-system-provider"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
@@ -21,11 +16,7 @@ import { AddFab } from "@/components/add-fab"
 import { RecordsTable } from "@/features/records/components/records-table"
 
 const PAGE_SIZE = 20
-const loadSearchParams = createLoader({
-  page: parseAsInteger.withDefault(1),
-  sort: parseAsStringLiteral(sortFields).withDefault(DEFAULT_SORT),
-  order: parseAsStringLiteral(sortOrders).withDefault(DEFAULT_ORDER),
-})
+const loadSearchParams = createLoader(recordsSearchParsers)
 
 export default async function Page({
   searchParams,

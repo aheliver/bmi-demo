@@ -4,11 +4,13 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react"
 import type { UnitSystem } from "@/lib/unit-system"
 import { formatWeight, formatHeight } from "@/lib/format"
 import { Button } from "@/components/ui/button"
-import type { Record, SortField, SortOrder } from "@/features/records/schema"
+import type { Record, RecordsQuery } from "@/features/records/schema"
+
+type SortField = RecordsQuery["sort"]
 
 type SortState = {
   sort: SortField
-  order: SortOrder
+  order: RecordsQuery["order"]
   onSort: (field: SortField) => void
 }
 
@@ -42,7 +44,7 @@ export function recordColumns(
     {
       id: "fullName",
       header: () => (
-        <SortableHeader label="Full name" field="name" {...sortState} />
+        <SortableHeader label="Full name" field="fullName" {...sortState} />
       ),
       accessorFn: (r) => `${r.firstName} ${r.lastName}`,
     },

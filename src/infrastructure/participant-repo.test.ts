@@ -48,4 +48,42 @@ describe.skipIf(!hasDb)("listParticipants (integration)", () => {
     expect(row).not.toHaveProperty("phone")
     expect(row).not.toHaveProperty("email")
   })
+
+  it("orders by the generated full_name column, case-insensitively", async () => {
+    const marker = "Zzcasemark"
+    const base = {
+      lastName: marker,
+      dob: new Date("1990-01-01"),
+      sex: "male" as const,
+      weightValue: "150",
+      weightUnit: "lb" as const,
+      heightValue: "70",
+      heightUnit: "in" as const,
+      bmi: "21.5",
+    }
+    // createdAt runs opposite to name order, so a createdAt/id sort would return
+    // ["Banana", "apple"] — only a case-insensitive full_name sort yields ["apple", "Banana"].
+    const [a, b] = await Promise.all([
+      prisma.participant.create({
+        data: { ...base, firstName: "apple", createdAt: new Date("2020-01-02T00:00:00Z") },
+        select: { id: true },
+      }),
+      prisma.participant.create({
+        data: { ...base, firstName: "Banana", createdAt: new Date("2020-01-01T00:00:00Z") },
+        select: { id: true },
+      }),
+    ])
+    try {
+      const { data } = await listParticipants({
+        page: 1,
+        pageSize: 100,
+        sort: "fullName",
+        order: "asc",
+      })
+      const names = data.filter((r) => r.lastName === marker).map((r) => r.firstName)
+      expect(names).toEqual(["apple", "Banana"])
+    } finally {
+      await prisma.participant.deleteMany({ where: { id: { in: [a.id, b.id] } } })
+    }
+  })
 })

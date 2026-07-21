@@ -1,22 +1,21 @@
 import {
   recordsResponseSchema,
   type RecordsResponse,
-  type SortField,
-  type SortOrder,
+  type RecordsQuery,
 } from "@/features/records/schema"
 
 export const recordsQueryKey = (
   page: number,
   pageSize: number,
-  sort: SortField,
-  order: SortOrder
+  sort: RecordsQuery["sort"],
+  order: RecordsQuery["order"]
 ) => ["records", { page, pageSize, sort, order }] as const
 
 export async function fetchRecords(
   page: number,
   pageSize: number,
-  sort: SortField,
-  order: SortOrder
+  sort: RecordsQuery["sort"],
+  order: RecordsQuery["order"]
 ): Promise<RecordsResponse> {
   const params = new URLSearchParams({
     page: String(page),
