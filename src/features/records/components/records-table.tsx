@@ -1,8 +1,15 @@
 "use client"
 
-import { useMemo } from "react"
-import { parseAsInteger, useQueryState } from "nuqs"
-import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table"
+import { useCallback } from "react"
+import { useQueryStates } from "nuqs"
+import {
+  flexRender,
+  functionalUpdate,
+  getCoreRowModel,
+  useReactTable,
+  type OnChangeFn,
+  type SortingState,
+} from "@tanstack/react-table"
 
 import {
   Table,
@@ -14,28 +21,49 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useUnitSystem } from "@/providers/unit-system-provider"
 import { useRecords } from "@/features/records/api/hooks"
 import { recordColumns } from "@/features/records/components/record-columns"
+import { sortField } from "@/features/records/schema"
+import { recordsSearchParsers } from "@/features/records/search-params"
 
 export function RecordsTable({ pageSize }: { pageSize: number }) {
-  const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1))
-  const { system } = useUnitSystem()
-  const { data, isPending, isError } = useRecords(page, pageSize)
+  const [{ page, sort, order }, setQuery] = useQueryStates(recordsSearchParsers)
+  const setPage = useCallback(
+    (next: number) => setQuery({ page: next }),
+    [setQuery]
+  )
 
-  const columns = useMemo(() => recordColumns(system), [system])
+  const sorting: SortingState = [{ id: sort, desc: order === "desc" }]
+  const onSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const [next] = functionalUpdate(updater, sorting)
+    if (!next) return
+    setQuery({
+      sort: sortField.parse(next.id),
+      order: next.desc ? "desc" : "asc",
+      page: 1,
+    })
+  }
+
+  const { data, isPending, isError } = useRecords({ page, pageSize, sort, order })
+
   const rows = data?.data ?? []
   const total = data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
 
   const table = useReactTable({
     data: rows,
-    columns,
+    columns: recordColumns,
     getCoreRowModel: getCoreRowModel(),
+    manualSorting: true,
+    enableSortingRemoval: false,
+    state: { sorting },
+    onSortingChange,
   })
 
   if (isError) {
-    return <p className="text-destructive p-4 text-sm">Failed to load records.</p>
+    return (
+      <p className="p-4 text-sm text-destructive">Failed to load records.</p>
+    )
   }
 
   return (
@@ -47,7 +75,9 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
               <TableRow key={hg.id}>
                 {hg.headers.map((h) => (
                   <TableHead key={h.id}>
-                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                    {h.isPlaceholder
+                      ? null
+                      : flexRender(h.column.columnDef.header, h.getContext())}
                   </TableHead>
                 ))}
               </TableRow>
@@ -57,7 +87,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
             {isPending ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {columns.map((_c, j) => (
+                  {recordColumns.map((_c, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -66,7 +96,10 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell
+                  colSpan={recordColumns.length}
+                  className="h-24 text-center"
+                >
                   No records.
                 </TableCell>
               </TableRow>
@@ -75,7 +108,10 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
                 <TableRow key={row.id}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -86,11 +122,16 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
       </div>
 
       <div className="flex items-center justify-between">
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Page {page} of {pageCount} · {total} records
         </p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
             Previous
           </Button>
           <Button

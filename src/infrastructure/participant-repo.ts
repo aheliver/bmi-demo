@@ -1,6 +1,10 @@
 import { prisma } from "./prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
-import type { RecordsQuery, RecordsResponse, Record } from "@/features/records/schema"
+import type {
+  RecordsQuery,
+  RecordsResponse,
+  Record,
+} from "@/features/records/schema"
 
 const listSelect = {
   id: true,
@@ -32,13 +36,21 @@ function toRecord(row: Row): Record {
   }
 }
 
-export async function listParticipants({ page, pageSize }: RecordsQuery): Promise<RecordsResponse> {
+export async function listParticipants({
+  page,
+  pageSize,
+  sort,
+  order,
+}: RecordsQuery): Promise<RecordsResponse> {
   const where = { deletedAt: null }
   const [rows, total] = await Promise.all([
     prisma.participant.findMany({
       where,
       select: listSelect,
-      orderBy: { createdAt: "desc" },
+      orderBy: [
+        { [sort]: order },
+        { id: "desc" },
+      ] as Prisma.ParticipantOrderByWithRelationInput[],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),

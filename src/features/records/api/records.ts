@@ -3,14 +3,21 @@ import {
   recordsResponseSchema,
   type Record,
   type RecordsResponse,
+  type RecordsQuery,
   type CreateRecordInput,
 } from "@/features/records/schema"
 
-export const recordsQueryKey = (page: number, pageSize: number) =>
-  ["records", { page, pageSize }] as const
+export const recordsQueryKey = (query: RecordsQuery) =>
+  ["records", query] as const
 
-export async function fetchRecords(page: number, pageSize: number): Promise<RecordsResponse> {
-  const res = await fetch(`/api/records?page=${page}&pageSize=${pageSize}`)
+export async function fetchRecords(query: RecordsQuery): Promise<RecordsResponse> {
+  const params = new URLSearchParams({
+    page: String(query.page),
+    pageSize: String(query.pageSize),
+    sort: query.sort,
+    order: query.order,
+  })
+  const res = await fetch(`/api/records?${params}`)
   if (!res.ok) throw new Error(`Failed to load records: ${res.status}`)
   return recordsResponseSchema.parse(await res.json())
 }

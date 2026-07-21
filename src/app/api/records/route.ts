@@ -10,6 +10,8 @@ export const GET = withRequestLog("records.list", async (req) => {
   const parsed = recordsQuerySchema.safeParse({
     page: url.searchParams.get("page") ?? undefined,
     pageSize: url.searchParams.get("pageSize") ?? undefined,
+    sort: url.searchParams.get("sort") ?? undefined,
+    order: url.searchParams.get("order") ?? undefined,
   })
 
   if (!parsed.success) {

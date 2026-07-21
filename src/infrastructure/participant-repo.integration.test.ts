@@ -62,7 +62,12 @@ describe("listParticipants (integration)", () => {
   })
 
   it("maps generated columns to numbers in the DTO and leaks no PII", async () => {
-    const { data, total } = await listParticipants({ page: 1, pageSize: 100 })
+    const { data, total } = await listParticipants({
+      page: 1,
+      pageSize: 100,
+      sort: "createdAt",
+      order: "desc",
+    })
     expect(total).toBeGreaterThan(0)
     const row = data.find((r) => r.id === createdId)!
     expect(typeof row.weightKg).toBe("number")
@@ -73,6 +78,40 @@ describe("listParticipants (integration)", () => {
     expect(row.dob).toBe("1990-01-01")
     expect(row).not.toHaveProperty("phone")
     expect(row).not.toHaveProperty("email")
+  })
+
+  it("orders by the generated full_name column, case-insensitively", async () => {
+    const marker = "Zzcasemark"
+    const base = {
+      lastName: marker,
+      dob: new Date("1990-01-01"),
+      sex: "male" as const,
+      weightValue: "150",
+      weightUnit: "lb" as const,
+      heightValue: "70",
+      heightUnit: "in" as const,
+      bmi: "21.5",
+    }
+    // createdAt runs opposite to name order, so a createdAt/id sort would return
+    // ["Banana", "apple"] — only a case-insensitive full_name sort yields ["apple", "Banana"].
+    await Promise.all([
+      prisma.participant.create({
+        data: { ...base, firstName: "apple", createdAt: new Date("2020-01-02T00:00:00Z") },
+        select: { id: true },
+      }),
+      prisma.participant.create({
+        data: { ...base, firstName: "Banana", createdAt: new Date("2020-01-01T00:00:00Z") },
+        select: { id: true },
+      }),
+    ])
+    const { data } = await listParticipants({
+      page: 1,
+      pageSize: 100,
+      sort: "fullName",
+      order: "asc",
+    })
+    const names = data.filter((r) => r.lastName === marker).map((r) => r.firstName)
+    expect(names).toEqual(["apple", "Banana"])
   })
 })
 
