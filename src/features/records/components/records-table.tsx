@@ -26,7 +26,7 @@ import {
   fetchRecords,
 } from "@/features/records/api/get-records"
 import { recordColumns } from "@/features/records/components/record-columns"
-import type { SortField } from "@/features/records/schema"
+import { sortField } from "@/features/records/schema"
 import { recordsSearchParsers } from "@/features/records/search-params"
 
 export function RecordsTable({ pageSize }: { pageSize: number }) {
@@ -41,7 +41,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
     const [next] = typeof updater === "function" ? updater(sorting) : updater
     if (!next) return
     setQuery({
-      sort: next.id as SortField,
+      sort: sortField.parse(next.id),
       order: next.desc ? "desc" : "asc",
       page: 1,
     })
