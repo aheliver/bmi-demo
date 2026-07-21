@@ -13,6 +13,7 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,md}\"",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
+    "test:integration": "INTEGRATION=1 vitest run",
     "e2e": "playwright test",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
@@ -45,6 +46,7 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
+    "@testcontainers/postgresql": "^12.0.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

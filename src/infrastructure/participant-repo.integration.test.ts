@@ -1,10 +1,46 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { prisma } from "./prisma"
-import { listParticipants, createParticipant } from "./participant-repo"
+import { execFileSync } from "node:child_process"
+import {
+  PostgreSqlContainer,
+  type StartedPostgreSqlContainer,
+} from "@testcontainers/postgresql"
 
-const hasDb = Boolean(process.env.DATABASE_URL)
+// These suites boot their OWN throwaway Postgres via Testcontainers. The
+// connection string is generated at runtime and points at a container that did
+// not exist a moment ago, so this test can never touch a real/production
+// database — it never reads .env. The whole DB is discarded on afterAll, so no
+// per-row cleanup is needed. Run with `npm run test:integration` (requires
+// Docker); the default `npm test` excludes *.integration.test.ts.
+//
+// ./prisma reads DATABASE_URL at import time, so we set it to the container URL
+// first and import the repo/client dynamically once the container is up.
 
-describe.skipIf(!hasDb)("listParticipants (integration)", () => {
+let container: StartedPostgreSqlContainer
+let prisma: typeof import("./prisma").prisma
+let listParticipants: typeof import("./participant-repo").listParticipants
+let createParticipant: typeof import("./participant-repo").createParticipant
+
+beforeAll(async () => {
+  container = await new PostgreSqlContainer("postgres:17").start()
+  process.env.DATABASE_URL = container.getConnectionUri()
+
+  // Apply the real migrations so the generated columns exist exactly as in
+  // production (prisma.config.ts reads DATABASE_URL from the environment).
+  execFileSync("npx", ["prisma", "migrate", "deploy"], {
+    env: process.env,
+    stdio: "inherit",
+  })
+
+  ;({ prisma } = await import("./prisma"))
+  ;({ listParticipants, createParticipant } = await import("./participant-repo"))
+}, 180_000) // first run pulls the postgres:17 image, which can be slow
+
+afterAll(async () => {
+  await prisma?.$disconnect()
+  await container?.stop()
+})
+
+describe("listParticipants (integration)", () => {
   let createdId: number
 
   beforeAll(async () => {
@@ -25,11 +61,6 @@ describe.skipIf(!hasDb)("listParticipants (integration)", () => {
     createdId = p.id
   })
 
-  afterAll(async () => {
-    await prisma.participant.delete({ where: { id: createdId } })
-    await prisma.$disconnect()
-  })
-
   it("maps generated columns to numbers in the DTO and leaks no PII", async () => {
     const { data, total } = await listParticipants({ page: 1, pageSize: 100 })
     expect(total).toBeGreaterThan(0)
@@ -45,20 +76,12 @@ describe.skipIf(!hasDb)("listParticipants (integration)", () => {
   })
 })
 
-describe.skipIf(!hasDb)("createParticipant (integration)", () => {
-  const ids: number[] = []
-
-  afterAll(async () => {
-    for (const id of ids) await prisma.participant.delete({ where: { id } })
-    await prisma.$disconnect()
-  })
-
+describe("createParticipant (integration)", () => {
   it("inserts a participant without a contact and returns the mapped record", async () => {
     const rec = await createParticipant({
       firstName: "Grace", lastName: "Hopper", dob: new Date("1980-05-05"), sex: "female",
       weightValue: 60, weightUnit: "kg", heightValue: 165, heightUnit: "cm", bmi: 22.0,
     })
-    ids.push(rec.id)
     expect(rec.weightKg).toBeCloseTo(60, 3)
     expect(rec.heightCm).toBeCloseTo(165, 2)
     expect(rec.bmi).toBe(22)
@@ -72,7 +95,6 @@ describe.skipIf(!hasDb)("createParticipant (integration)", () => {
       weightValue: 154, weightUnit: "lb", heightValue: 70, heightUnit: "in", bmi: 22.1,
       contact: { create: { phone: "555-0100", email: "alan@example.com" } },
     })
-    ids.push(rec.id)
     const contact = await prisma.contact.findUnique({ where: { participantId: rec.id } })
     expect(contact?.email).toBe("alan@example.com")
   })
