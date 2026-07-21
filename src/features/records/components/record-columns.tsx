@@ -4,13 +4,11 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react"
 import type { UnitSystem } from "@/lib/unit-system"
 import { formatWeight, formatHeight } from "@/lib/format"
 import { Button } from "@/components/ui/button"
-import type { Record, RecordsQuery } from "@/features/records/schema"
-
-type SortField = RecordsQuery["sort"]
+import type { Record, SortField, SortOrder } from "@/features/records/schema"
 
 type SortState = {
   sort: SortField
-  order: RecordsQuery["order"]
+  order: SortOrder
   onSort: (field: SortField) => void
 }
 

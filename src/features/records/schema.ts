@@ -16,6 +16,8 @@ export type Record = z.infer<typeof recordSchema>
 
 export const sortField = z.enum(["fullName", "createdAt"])
 export const sortOrder = z.enum(["asc", "desc"])
+export type SortField = z.infer<typeof sortField>
+export type SortOrder = z.infer<typeof sortOrder>
 
 export const recordsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

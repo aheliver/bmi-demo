@@ -25,7 +25,7 @@ import {
   fetchRecords,
 } from "@/features/records/api/get-records"
 import { recordColumns } from "@/features/records/components/record-columns"
-import type { RecordsQuery } from "@/features/records/schema"
+import type { SortField } from "@/features/records/schema"
 import { recordsSearchParsers } from "@/features/records/search-params"
 
 export function RecordsTable({ pageSize }: { pageSize: number }) {
@@ -36,7 +36,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
   )
 
   const onSort = useCallback(
-    (field: RecordsQuery["sort"]) => {
+    (field: SortField) => {
       const active = field === sort
       setQuery({
         sort: field,
