@@ -2,7 +2,6 @@
 
 import { useCallback } from "react"
 import { useQueryStates } from "nuqs"
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import {
   flexRender,
   functionalUpdate,
@@ -22,10 +21,7 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  recordsQueryKey,
-  fetchRecords,
-} from "@/features/records/api/get-records"
+import { useRecords } from "@/features/records/api/hooks"
 import { recordColumns } from "@/features/records/components/record-columns"
 import { sortField } from "@/features/records/schema"
 import { recordsSearchParsers } from "@/features/records/search-params"
@@ -48,12 +44,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
     })
   }
 
-  const query = { page, pageSize, sort, order }
-  const { data, isPending, isError } = useQuery({
-    queryKey: recordsQueryKey(query),
-    queryFn: () => fetchRecords(query),
-    placeholderData: keepPreviousData,
-  })
+  const { data, isPending, isError } = useRecords({ page, pageSize, sort, order })
 
   const rows = data?.data ?? []
   const total = data?.total ?? 0
