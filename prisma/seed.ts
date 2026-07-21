@@ -8,7 +8,9 @@ import { computeBmi } from "../src/lib/bmi"
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
 
-const FIRST = ["Ada","Alan","Grace","Katherine","Linus","Margaret","Dennis","Barbara","Edsger","Radia","Ken","Hedy","Tim","Anita","Guido","Shafi","James","Sophie","Bjarne","Joan"]
+// Coprime list lengths (21 and 20) so first and last names advance
+// independently: every row gets a distinct pair, unique across all 60.
+const FIRST = ["Ada","Alan","Grace","Katherine","Linus","Margaret","Dennis","Barbara","Edsger","Radia","Ken","Hedy","Tim","Anita","Guido","Shafi","James","Sophie","Bjarne","Joan","Donald"]
 const LAST = ["Lovelace","Turing","Hopper","Johnson","Torvalds","Hamilton","Ritchie","Liskov","Dijkstra","Perlman","Thompson","Lamarr","Berners-Lee","Borg","Rossum","Goldwasser","Gosling","Wilson","Stroustrup","Clarke"]
 
 // Deterministic pseudo-spread (no Math.random — keeps seeds reproducible).
@@ -25,7 +27,7 @@ function makeRow(i: number) {
   const day = String((i % 27) + 1).padStart(2, "0")
   return {
     firstName: FIRST[i % FIRST.length],
-    lastName: LAST[Math.floor(i / FIRST.length) % LAST.length],
+    lastName: LAST[i % LAST.length],
     dob: new Date(`${year}-${month}-${day}`),
     sex: i % 2 === 0 ? ("male" as const) : ("female" as const),
     weightValue: weightValue.toFixed(3),
