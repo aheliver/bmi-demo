@@ -29,10 +29,11 @@ export default async function Page({
     .catch("metric")
     .parse(store.get(UNIT_COOKIE)?.value)
 
+  const query = { page, pageSize: PAGE_SIZE, sort, order }
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({
-    queryKey: recordsQueryKey(page, PAGE_SIZE, sort, order),
-    queryFn: () => listParticipants({ page, pageSize: PAGE_SIZE, sort, order }),
+    queryKey: recordsQueryKey(query),
+    queryFn: () => listParticipants(query),
   })
 
   return (

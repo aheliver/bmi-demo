@@ -54,9 +54,10 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
   )
 
   const { system } = useUnitSystem()
+  const query = { page, pageSize, sort, order }
   const { data, isPending, isError } = useQuery({
-    queryKey: recordsQueryKey(page, pageSize, sort, order),
-    queryFn: () => fetchRecords(page, pageSize, sort, order),
+    queryKey: recordsQueryKey(query),
+    queryFn: () => fetchRecords(query),
     placeholderData: keepPreviousData,
   })
 
