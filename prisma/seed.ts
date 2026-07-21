@@ -25,7 +25,7 @@ function makeRow(i: number) {
   const day = String((i % 27) + 1).padStart(2, "0")
   return {
     firstName: FIRST[i % FIRST.length],
-    lastName: LAST[(i * 7) % LAST.length],
+    lastName: LAST[Math.floor(i / FIRST.length) % LAST.length],
     dob: new Date(`${year}-${month}-${day}`),
     sex: i % 2 === 0 ? ("male" as const) : ("female" as const),
     weightValue: weightValue.toFixed(3),
