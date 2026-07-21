@@ -40,7 +40,6 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
     setQuery({
       sort: sortField.parse(next.id),
       order: next.desc ? "desc" : "asc",
-      page: 1,
     })
   }
 

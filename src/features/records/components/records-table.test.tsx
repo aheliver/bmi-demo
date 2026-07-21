@@ -81,4 +81,23 @@ describe("RecordsTable pagination", () => {
     expect(screen.queryByText("Ada1 Lovelace")).not.toBeInTheDocument()
     expect(screen.queryByText("Ada20 Lovelace")).not.toBeInTheDocument()
   })
+
+  it("stays on the current page when a column is sorted", async () => {
+    const user = userEvent.setup()
+    renderTable()
+
+    // Go to page 2.
+    await user.click(screen.getByRole("button", { name: "Next" }))
+    await waitFor(() =>
+      expect(screen.getByText(/Page 2 of 2/)).toBeInTheDocument(),
+    )
+
+    // Sorting must not knock us back to page 1.
+    await user.click(screen.getByRole("button", { name: /Full name/ }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Page 2 of 2/)).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Page 1 of 2/)).not.toBeInTheDocument()
+  })
 })
