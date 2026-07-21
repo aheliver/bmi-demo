@@ -5,6 +5,7 @@ import { useQueryStates } from "nuqs"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import {
   flexRender,
+  functionalUpdate,
   getCoreRowModel,
   useReactTable,
   type OnChangeFn,
@@ -38,7 +39,7 @@ export function RecordsTable({ pageSize }: { pageSize: number }) {
 
   const sorting: SortingState = [{ id: sort, desc: order === "desc" }]
   const onSortingChange: OnChangeFn<SortingState> = (updater) => {
-    const [next] = typeof updater === "function" ? updater(sorting) : updater
+    const [next] = functionalUpdate(updater, sorting)
     if (!next) return
     setQuery({
       sort: sortField.parse(next.id),
